@@ -1,5 +1,5 @@
 {
-  "name": "@the-convocation/twitter-scraper",
+  "name": "@catdevnull/twitter-scraper",
   "description": "A port of n0madic/twitter-scraper to Node.js.",
   "keywords": [
     "x",
@@ -9,7 +9,7 @@
   ],
   "version": "0.10.1",
   "main": "dist/_module.js",
-  "repository": "https://github.com/the-convocation/twitter-scraper.git",
+  "repository": "https://github.com/catdevnull/twitter-scraper.git",
   "author": "karashiiro <49822414+karashiiro@users.noreply.github.com>",
   "license": "MIT",
   "engines": {
