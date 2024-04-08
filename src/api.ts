@@ -31,6 +31,21 @@ export interface FetchTransformOptions {
 export const bearerToken =
   'AAAAAAAAAAAAAAAAAAAAAFQODgEAAAAAVHTp76lzh3rFzcHbmHVvQxYYpTw%3DckAlMINMjmCwxUcaXbAN4XqJVdgMJaHqNOFgPMK0zN1qLqLQCF';
 
+export class RateLimitError extends Error {
+  resetAt: Date;
+  constructor(resetAt: Date) {
+    super(`Rate limit detected in this account. Resets at ${resetAt}`);
+    this.resetAt = resetAt;
+  }
+
+  // XXX: not tested
+  async waitUntilReset() {
+    const deltaMs = +this.resetAt - +new Date();
+    // I have seen this block for 800s (~13 *minutes*)
+    await new Promise((resolve) => setTimeout(resolve, deltaMs));
+  }
+}
+
 /**
  * An API result container.
  */
@@ -83,11 +98,8 @@ export async function requestApi<T>(
       const xRateLimitRemaining = res.headers.get('x-rate-limit-remaining');
       const xRateLimitReset = res.headers.get('x-rate-limit-reset');
       if (xRateLimitRemaining == '0' && xRateLimitReset) {
-        const currentTime = new Date().valueOf() / 1000;
-        const timeDeltaMs = 1000 * (parseInt(xRateLimitReset) - currentTime);
-
-        // I have seen this block for 800s (~13 *minutes*)
-        await new Promise((resolve) => setTimeout(resolve, timeDeltaMs));
+        const resetDate = new Date(parseInt(xRateLimitReset) * 1000);
+        throw new RateLimitError(resetDate);
       }
     }
   } while (res.status === 429);
