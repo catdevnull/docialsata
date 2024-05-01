@@ -82,6 +82,7 @@ export interface TimelineInstruction {
 }
 
 export interface TimelineV2 {
+  errors?: { message: string }[];
   data?: {
     user?: {
       result?: {

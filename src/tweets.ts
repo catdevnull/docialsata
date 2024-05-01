@@ -218,6 +218,9 @@ export async function fetchLikedTweets(
   if (!res.success) {
     throw res.err;
   }
+  if (res.value.errors?.length ?? 0 > 0) {
+    throw new Error('API returned some errors');
+  }
 
   return parseTimelineTweetsV2(res.value);
 }
