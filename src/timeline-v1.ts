@@ -101,9 +101,11 @@ export interface TimelineResultRaw {
     result?: TimelineResultRaw;
   };
   legacy?: LegacyTweetRaw;
+  tweet?: TimelineResultRaw;
 }
 
 export interface LegacyTweetRaw {
+  bookmark_count?: number;
   conversation_id_str?: string;
   created_at?: string;
   favorite_count?: number;

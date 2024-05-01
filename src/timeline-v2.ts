@@ -142,6 +142,7 @@ export function parseLegacyTweet(
   const { photos, videos, sensitiveContent } = parseMediaGroups(media);
 
   const tw: Tweet = {
+    bookmarkCount: tweet.bookmark_count,
     conversationId: tweet.conversation_id_str,
     id: tweet.id_str,
     hashtags: hashtags
@@ -326,9 +327,15 @@ export function parseTimelineEntryItemContentRaw(
   entryId: string,
   isConversation = false,
 ) {
-  const result = content.tweet_results?.result ?? content.tweetResult?.result;
-  if (result?.__typename === 'Tweet') {
-    if (result.legacy) {
+  let result = content.tweet_results?.result ?? content.tweetResult?.result;
+  if (
+    result?.__typename === 'Tweet' ||
+    (result?.__typename === 'TweetWithVisibilityResults' && result?.tweet)
+  ) {
+    if (result?.__typename === 'TweetWithVisibilityResults')
+      result = result.tweet;
+
+    if (result?.legacy) {
       result.legacy.id_str =
         result.rest_id ??
         entryId.replace('conversation-', '').replace('tweet-', '');
