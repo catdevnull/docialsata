@@ -89,6 +89,12 @@ export interface TimelineV2 {
         timeline_v2?: {
           timeline?: {
             instructions?: TimelineInstruction[];
+            metadata?: {
+              scribeConfig?: {
+                // 'profileBestHighlights' | 'profileBest'
+                page?: string;
+              };
+            };
           };
         };
       };
@@ -283,6 +289,13 @@ export function parseTimelineTweetsV2(
   const tweets: Tweet[] = [];
   const instructions =
     timeline.data?.user?.result?.timeline_v2?.timeline?.instructions ?? [];
+
+  if (
+    timeline.data?.user?.result?.timeline_v2?.timeline?.metadata?.scribeConfig
+      ?.page === 'profileBestHighlights'
+  )
+    throw new Error('This is the unauthed timeline');
+
   for (const instruction of instructions) {
     const entries = instruction.entries ?? [];
 
