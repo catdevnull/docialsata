@@ -107,7 +107,7 @@ export async function requestApi<T>(
   if (!res.ok) {
     return {
       success: false,
-      err: await ApiError.fromResponse(res),
+      err: await ApiError.fromResponse(res, url),
     };
   }
 

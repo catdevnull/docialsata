@@ -7,7 +7,7 @@ export class ApiError extends Error {
     super(message);
   }
 
-  static async fromResponse(response: Response) {
+  static async fromResponse(response: Response, url: string) {
     // Try our best to parse the result, but don't bother if we can't
     let data: string | object | undefined = undefined;
     try {
@@ -18,7 +18,11 @@ export class ApiError extends Error {
       } catch {}
     }
 
-    return new ApiError(response, data, `Response status: ${response.status}`);
+    return new ApiError(
+      response,
+      data,
+      `Response when trying to fetch '${url}' status: ${response.status}`,
+    );
   }
 }
 
