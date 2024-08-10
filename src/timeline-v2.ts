@@ -1,6 +1,7 @@
 import { LegacyUserRaw } from './profile';
 import { parseMediaGroups, reconstructTweetHtml } from './timeline-tweet-util';
 import {
+  EditControlInitialRaw,
   LegacyTweetRaw,
   ParseTweetResult,
   QueryTweetsResponse,
@@ -110,9 +111,18 @@ export interface ThreadedConversation {
   };
 }
 
+function getLegacyTweetId(tweet: Readonly<LegacyTweetRaw>): string | undefined {
+  if (tweet.id_str) {
+    return tweet.id_str;
+  }
+
+  return tweet.conversation_id_str;
+}
+
 export function parseLegacyTweet(
-  user?: LegacyUserRaw,
-  tweet?: LegacyTweetRaw,
+  user?: Readonly<LegacyUserRaw>,
+  tweet?: Readonly<LegacyTweetRaw>,
+  editControl?: Readonly<EditControlInitialRaw>,
 ): ParseTweetResult {
   if (tweet == null) {
     return {
@@ -128,15 +138,12 @@ export function parseLegacyTweet(
     };
   }
 
-  if (!tweet.id_str) {
-    if (!tweet.conversation_id_str) {
-      return {
-        success: false,
-        err: new Error('Tweet ID was not found in object.'),
-      };
-    }
-
-    tweet.id_str = tweet.conversation_id_str;
+  const tweetId = getLegacyTweetId(tweet);
+  if (!tweetId) {
+    return {
+      success: false,
+      err: new Error('Tweet ID was not found in object.'),
+    };
   }
 
   const hashtags = tweet.entities?.hashtags ?? [];
@@ -148,10 +155,15 @@ export function parseLegacyTweet(
   const urls = tweet.entities?.urls ?? [];
   const { photos, videos, sensitiveContent } = parseMediaGroups(media);
 
+  // The edit tweets array always contains the original tweet, even if it has not been edited
+  const tweetVersions = editControl?.edit_tweet_ids ?? [tweetId];
+  const editIds = tweetVersions.filter((id) => id !== tweetId);
+
   const tw: Tweet = {
+    __raw_UNSTABLE: tweet,
     bookmarkCount: tweet.bookmark_count,
     conversationId: tweet.conversation_id_str,
-    id: tweet.id_str,
+    id: tweetId,
     hashtags: hashtags
       .filter(isFieldDefined('text'))
       .map((hashtag) => hashtag.text),
@@ -162,7 +174,7 @@ export function parseLegacyTweet(
       name: mention.name,
     })),
     name: user.name,
-    permanentUrl: `https://twitter.com/${user.screen_name}/status/${tweet.id_str}`,
+    permanentUrl: `https://twitter.com/${user.screen_name}/status/${tweetId}`,
     photos,
     replies: tweet.reply_count,
     retweets: tweet.retweet_count,
@@ -176,6 +188,8 @@ export function parseLegacyTweet(
     videos,
     isQuoted: false,
     isReply: false,
+    isEdited: editIds.length > 1,
+    versions: tweetVersions,
     isRetweet: false,
     isPin: false,
     sensitiveContent: false,
@@ -226,7 +240,7 @@ export function parseLegacyTweet(
     tw.views = views;
   }
 
-  if (pinnedTweets.has(tweet.id_str)) {
+  if (pinnedTweets.has(tweetId)) {
     // TODO: Update tests so this can be assigned at the tweet declaration
     tw.isPin = true;
   }

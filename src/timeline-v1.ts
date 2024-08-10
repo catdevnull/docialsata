@@ -49,6 +49,13 @@ export interface TimelineMediaExtendedRaw {
   ext_alt_text: string | undefined;
 }
 
+export interface EditControlInitialRaw {
+  edit_tweet_ids?: string[];
+  editable_until_msecs?: `${number}`;
+  edits_remaining?: `${number}`;
+  is_edit_eligible?: boolean;
+}
+
 export interface SearchResultRaw {
   rest_id?: string;
   __typename?: string;
@@ -59,6 +66,9 @@ export interface SearchResultRaw {
         legacy?: LegacyUserRaw;
       };
     };
+  };
+  edit_control?: {
+    edit_control_initial?: EditControlInitialRaw;
   };
   views?: {
     count?: string;
@@ -229,19 +239,21 @@ export type ParseTweetResult =
 
 function parseTimelineTweet(
   timeline: TimelineV1,
-  id: string,
+  tweetId: string,
 ): ParseTweetResult {
   const tweets = timeline.globalObjects?.tweets ?? {};
-  const tweet = tweets[id];
+  const tweet: Readonly<LegacyTweetRaw> | undefined = tweets[tweetId];
   if (tweet?.user_id_str == null) {
     return {
       success: false,
-      err: new Error(`Tweet "${id}" was not found in the timeline object.`),
+      err: new Error(
+        `Tweet "${tweetId}" was not found in the timeline object.`,
+      ),
     };
   }
 
   const users = timeline.globalObjects?.users ?? {};
-  const user = users[tweet.user_id_str];
+  const user: Readonly<LegacyUserRaw> | undefined = users[tweet.user_id_str];
   if (user?.screen_name == null) {
     return {
       success: false,
@@ -259,8 +271,9 @@ function parseTimelineTweet(
   const { photos, videos, sensitiveContent } = parseMediaGroups(media);
 
   const tw: Tweet = {
+    __raw_UNSTABLE: tweet,
     conversationId: tweet.conversation_id_str,
-    id,
+    id: tweetId,
     hashtags: hashtags
       .filter(isFieldDefined('text'))
       .map((hashtag) => hashtag.text),
@@ -271,7 +284,7 @@ function parseTimelineTweet(
       name: mention.name,
     })),
     name: user.name,
-    permanentUrl: `https://twitter.com/${user.screen_name}/status/${id}`,
+    permanentUrl: `https://twitter.com/${user.screen_name}/status/${tweetId}`,
     photos,
     replies: tweet.reply_count,
     retweets: tweet.retweet_count,

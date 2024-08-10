@@ -1,7 +1,6 @@
 import { getScraper } from './test-utils';
 import { Mention, Tweet } from './tweets';
 import { QueryTweetsResponse } from './timeline-v1';
-import { SearchMode } from './search';
 
 test('scraper can get tweet', async () => {
   const expected: Tweet = {
@@ -25,6 +24,8 @@ test('scraper can get tweet', async () => {
     videos: [],
     isQuoted: false,
     isReply: false,
+    isEdited: false,
+    versions: ['1585338303800578049'],
     isRetweet: false,
     isPin: false,
     sensitiveContent: false,
@@ -32,6 +33,7 @@ test('scraper can get tweet', async () => {
 
   const scraper = await getScraper();
   const actual = await scraper.getTweet('1585338303800578049');
+  delete actual?.__raw_UNSTABLE;
   delete actual?.likes;
   delete actual?.replies;
   delete actual?.retweets;
@@ -155,6 +157,8 @@ test('scraper can get tweet quotes without logging in', async () => {
     videos: [],
     isQuoted: false,
     isReply: false,
+    isEdited: false,
+    versions: ['1237110546383724547'],
     isRetweet: false,
     isPin: false,
     sensitiveContent: false,
@@ -163,6 +167,7 @@ test('scraper can get tweet quotes without logging in', async () => {
   const scraper = await getScraper({ authMethod: 'anonymous' });
   const quote = await scraper.getTweet('1237110897597976576');
   expect(quote?.isQuoted).toBeTruthy();
+  delete quote?.quotedStatus?.__raw_UNSTABLE;
   delete quote?.quotedStatus?.likes;
   delete quote?.quotedStatus?.replies;
   delete quote?.quotedStatus?.retweets;
@@ -197,6 +202,8 @@ test('scraper can get tweet quotes and replies', async () => {
     videos: [],
     isQuoted: false,
     isReply: false,
+    isEdited: false,
+    versions: ['1237110546383724547'],
     isRetweet: false,
     isPin: false,
     sensitiveContent: false,
@@ -205,6 +212,7 @@ test('scraper can get tweet quotes and replies', async () => {
   const scraper = await getScraper();
   const quote = await scraper.getTweet('1237110897597976576');
   expect(quote?.isQuoted).toBeTruthy();
+  delete quote?.quotedStatus?.__raw_UNSTABLE;
   delete quote?.quotedStatus?.likes;
   delete quote?.quotedStatus?.replies;
   delete quote?.quotedStatus?.retweets;
@@ -217,6 +225,7 @@ test('scraper can get tweet quotes and replies', async () => {
   if (reply != null) {
     reply.isReply = false;
   }
+  delete reply?.inReplyToStatus?.__raw_UNSTABLE;
   delete reply?.inReplyToStatus?.likes;
   delete reply?.inReplyToStatus?.replies;
   delete reply?.inReplyToStatus?.retweets;
@@ -252,6 +261,8 @@ test('scraper can get retweet', async () => {
     ],
     isQuoted: false,
     isReply: false,
+    isEdited: false,
+    versions: ['1776276954435481937'],
     isRetweet: false,
     isPin: false,
     sensitiveContent: false,
@@ -260,6 +271,7 @@ test('scraper can get retweet', async () => {
   const scraper = await getScraper();
   const retweet = await scraper.getTweet('1776285549566808397');
   expect(retweet?.isRetweet).toBeTruthy();
+  delete retweet?.retweetedStatus?.__raw_UNSTABLE;
   delete retweet?.retweetedStatus?.likes;
   delete retweet?.retweetedStatus?.replies;
   delete retweet?.retweetedStatus?.retweets;
@@ -288,6 +300,8 @@ test('scraper can get tweet views', async () => {
     videos: [],
     isQuoted: false,
     isReply: false,
+    isEdited: false,
+    versions: ['1606055187348688896'],
     isRetweet: false,
     isPin: false,
     sensitiveContent: false,
@@ -296,6 +310,7 @@ test('scraper can get tweet views', async () => {
   const scraper = await getScraper();
   const actual = await scraper.getTweet('1606055187348688896');
   expect(actual?.views).toBeTruthy();
+  delete actual?.__raw_UNSTABLE;
   delete actual?.likes;
   delete actual?.replies;
   delete actual?.retweets;
