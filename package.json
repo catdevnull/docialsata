@@ -27,7 +27,7 @@
   "engines": {
     "node": ">=16"
   },
-  "packageManager": "yarn@1.22.19",
+  "_packageManager": "yarn@1.22.19",
   "scripts": {
     "build": "rimraf dist && rollup -c",
     "commit": "cz",
