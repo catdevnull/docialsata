@@ -70,6 +70,35 @@ export class TwitterUserAuth extends TwitterGuestAuth {
     return verify && !verify.errors?.length;
   }
 
+  async loginWithToken(token: string): Promise<void> {
+    // await this.updateGuestToken();
+
+    let ct0 = '';
+    const choices = [...'0123456789abcdefghijklmnopqrstuvwxyz'.split('')];
+    for (let i = 0; i < 160; i++) {
+      ct0 += choices[Math.floor(Math.random() * choices.length)];
+    }
+    await this.jar.setCookie(`ct0=${ct0}`, 'https://twitter.com');
+
+    await this.jar.setCookie(`auth_token=${token}`, 'https://twitter.com');
+
+    const headers = new Headers();
+    await this.installTo(headers);
+    // https://github.com/HeavyHell/pytwex/blob/c3e5ccae9f3124a8a2c0d333b2cb6bd6fb2dad16/pytwex/client.py#L100
+    const res = await this.fetch(
+      'https://api.twitter.com/graphql/HC-1ZetsBT1HKVUOvnLE8Q/Viewer?variables=%7B%22withCommunitiesMemberships%22%3Atrue%7D&features=%7B%22rweb_tipjar_consumption_enabled%22%3Atrue%2C%22responsive_web_graphql_exclude_directive_enabled%22%3Atrue%2C%22verified_phone_label_enabled%22%3Afalse%2C%22creator_subscriptions_tweet_preview_api_enabled%22%3Atrue%2C%22responsive_web_graphql_skip_user_profile_image_extensions_enabled%22%3Afalse%2C%22responsive_web_graphql_timeline_navigation_enabled%22%3Atrue%7D&fieldToggles=%7B%22isDelegate%22%3Afalse%2C%22withAuxiliaryUserLabels%22%3Afalse%7D',
+      {
+        headers,
+      },
+    );
+    if (res.status === 403) {
+      // as expected
+      await updateCookieJar(this.jar, res.headers);
+    } else {
+      throw new Error('no 403 on oauth authorize');
+    }
+  }
+
   async login(
     username: string,
     password: string,

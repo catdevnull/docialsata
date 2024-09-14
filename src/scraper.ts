@@ -1,5 +1,10 @@
 import { Cookie } from 'tough-cookie';
-import { bearerToken, FetchTransformOptions, RequestApiResult } from './api';
+import {
+  bearerToken,
+  FetchTransformOptions,
+  requestApi,
+  RequestApiResult,
+} from './api';
 import { TwitterAuth, TwitterAuthOptions, TwitterGuestAuth } from './auth';
 import { TwitterUserAuth } from './auth-user';
 import { getProfile, getUserIdByScreenName, Profile } from './profile';
@@ -34,6 +39,8 @@ import {
   getTweetsAndReplies,
 } from './tweets';
 import fetch from 'cross-fetch';
+import { Headers } from 'headers-polyfill';
+import { updateCookieJar } from './requests';
 
 const twUrl = 'https://twitter.com';
 
@@ -346,6 +353,23 @@ export class Scraper {
     return getTweetsWhere(tweets, query);
   }
 
+  public async unstableFetchInitialState() {
+    const headers = new Headers();
+    const url = 'https://twitter.com';
+    await this.auth.installTo(headers, url);
+    const res = await this.auth.fetch(url, {
+      headers,
+      credentials: 'include',
+    });
+    console.log(res.status, res.headers);
+    const txt = await res.text();
+    console.log('txt', txt);
+    const match = txt.match(/.+window.__INITIAL_STATE__=(\{.+\});.+/);
+    if (!match) throw new Error("Couldn't find __INITIAL_STATE__");
+    const json = JSON.parse(match[1]);
+    return json;
+  }
+
   /**
    * Fetches the most recent tweet from a Twitter user.
    * @param user The user whose latest tweet should be returned.
@@ -408,6 +432,17 @@ export class Scraper {
     // Swap in a real authorizer for all requests
     const userAuth = new TwitterUserAuth(this.token, this.getAuthOptions());
     await userAuth.login(username, password, email, twoFactorSecret);
+    this.auth = userAuth;
+    this.authTrends = userAuth;
+  }
+
+  /**
+   * Login to Twitter using a real Twitter account, from an auth_token cookie.
+   * @param cookie
+   */
+  public async loginWithToken(token: string): Promise<void> {
+    const userAuth = new TwitterUserAuth(this.token, this.getAuthOptions());
+    await userAuth.loginWithToken(token);
     this.auth = userAuth;
     this.authTrends = userAuth;
   }
