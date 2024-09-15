@@ -84,9 +84,26 @@ export class TwitterUserAuth extends TwitterGuestAuth {
 
     const headers = new Headers();
     await this.installTo(headers);
+
+    // https://github.com/fa0311/TwitterInternalAPIDocument/blob/2b28ecb1450b80e61d6dcfcd2633df68d01940e4/docs/json/API.json#L1771
+    const variables = {
+      rweb_tipjar_consumption_enabled: true,
+      responsive_web_graphql_exclude_directive_enabled: true,
+      verified_phone_label_enabled: false,
+      creator_subscriptions_tweet_preview_api_enabled: true,
+      responsive_web_graphql_skip_user_profile_image_extensions_enabled: false,
+      responsive_web_graphql_timeline_navigation_enabled: true,
+    };
+
     // https://github.com/HeavyHell/pytwex/blob/c3e5ccae9f3124a8a2c0d333b2cb6bd6fb2dad16/pytwex/client.py#L100
     const res = await this.fetch(
-      'https://api.twitter.com/graphql/HC-1ZetsBT1HKVUOvnLE8Q/Viewer?variables=%7B%22withCommunitiesMemberships%22%3Atrue%7D&features=%7B%22rweb_tipjar_consumption_enabled%22%3Atrue%2C%22responsive_web_graphql_exclude_directive_enabled%22%3Atrue%2C%22verified_phone_label_enabled%22%3Afalse%2C%22creator_subscriptions_tweet_preview_api_enabled%22%3Atrue%2C%22responsive_web_graphql_skip_user_profile_image_extensions_enabled%22%3Afalse%2C%22responsive_web_graphql_timeline_navigation_enabled%22%3Atrue%7D&fieldToggles=%7B%22isDelegate%22%3Afalse%2C%22withAuxiliaryUserLabels%22%3Afalse%7D',
+      `https://twitter.com/i/api/graphql/HC-1ZetsBT1HKVUOvnLE8Q/Viewer?variables=${encodeURIComponent(
+        JSON.stringify({ withCommunitiesMemberships: true }),
+      )}&features=${encodeURIComponent(
+        JSON.stringify(variables),
+      )}&fieldToggles=${encodeURIComponent(
+        JSON.stringify({ isDelegate: false, withAuxiliaryUserLabels: false }),
+      )}`,
       {
         headers,
       },
@@ -95,6 +112,7 @@ export class TwitterUserAuth extends TwitterGuestAuth {
       // as expected
       await updateCookieJar(this.jar, res.headers);
     } else {
+      console.log(res);
       throw new Error('no 403 on oauth authorize');
     }
   }
