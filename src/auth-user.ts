@@ -112,7 +112,6 @@ export class TwitterUserAuth extends TwitterGuestAuth {
       // as expected
       await updateCookieJar(this.jar, res.headers);
     } else {
-      console.log(res);
       throw new Error('no 403 on oauth authorize');
     }
   }
