@@ -118,10 +118,19 @@ export async function requestApi<T>(
   const value: T = await res.json();
   if (res.headers.get('x-rate-limit-incoming') == '0') {
     auth.deleteToken();
-    return { success: true, value };
-  } else {
-    return { success: true, value };
   }
+
+  if (
+    'errors' in (value as any) &&
+    (value as any).errors != null &&
+    (value as any).errors.length > 0
+  ) {
+    return {
+      success: false,
+      err: new Error((value as any).errors[0].message),
+    };
+  }
+  return { success: true, value };
 }
 
 /** @internal */
