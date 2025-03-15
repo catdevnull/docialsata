@@ -1,9 +1,10 @@
 import { CookieJar, Cookie } from 'tough-cookie';
-import { Scraper } from './scraper';
-import { type TwitterAuth, TwitterGuestAuth } from './auth';
+import { Scraper } from './scraper.js';
+import { type TwitterAuth, TwitterGuestAuth } from './auth.js';
 import { Headers } from 'headers-polyfill';
+import path, { join } from 'path';
+import { JSONFileSyncPreset } from 'lowdb/node';
 
-// Account information type
 export type AccountInfo = {
   username: string;
   password: string;
@@ -11,6 +12,18 @@ export type AccountInfo = {
   emailPassword: string;
   authToken: string;
   twoFactorSecret: string;
+};
+
+export type AccountState = AccountInfo & {
+  tokenState: 'unknown' | 'working' | 'failed';
+  failedLogin: boolean;
+  lastUsed?: number;
+  lastFailedAt?: number;
+};
+
+type DbData = {
+  accounts: AccountState[];
+  lastSaved?: number;
 };
 
 // Default format for account list
@@ -98,50 +111,45 @@ function pDebounce<T extends (...args: any[]) => Promise<any>>(
  * Handles account rotation, authentication, and cookie management
  */
 export class AccountManager {
-  private accounts: AccountInfo[] = [];
   private cookieJar = new CookieJar();
   private loggedIn = false;
-  private failedAccountUsernames = new Set<string>();
   public static DEFAULT_BEARER_TOKEN =
     'AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA';
   private currentUsername: string | null = null;
+  private db: ReturnType<typeof JSONFileSyncPreset<DbData>>;
 
-  constructor(accounts: AccountInfo[] = []) {
-    this.accounts = accounts;
+  constructor(accounts: AccountInfo[] = [], options?: { statePath?: string }) {
+    const dbPath =
+      options?.statePath ||
+      join(
+        process.cwd(),
+        process.env.ACCOUNTS_STATE_PATH || 'account-state.json',
+      );
+
+    this.db = JSONFileSyncPreset<DbData>(dbPath, {
+      accounts: accounts.map((a) => ({
+        ...a,
+        tokenState: 'unknown',
+        failedLogin: false,
+      })),
+    });
+    this.db.write();
   }
 
   /**
    * Add accounts to the manager
    */
   addAccounts(newAccounts: AccountInfo[]): void {
-    this.accounts.push(...newAccounts);
-  }
-
-  /**
-   * Get the current list of accounts
-   */
-  getAccounts(): AccountInfo[] {
-    return [...this.accounts];
-  }
-
-  /**
-   * Get a summary of accounts (non-sensitive data only)
-   */
-  getAccountSummaries() {
-    return this.accounts.map((account, index) => ({
-      id: `${account.username}_${index}`,
-      username: account.username,
-      hasAuthToken: !!account.authToken,
-      has2FA: !!account.twoFactorSecret,
-      isCurrentlyActive: this.currentUsername === account.username,
-    }));
-  }
-
-  /**
-   * Check if the manager has accounts
-   */
-  hasAccounts(): boolean {
-    return this.accounts.length > 0;
+    newAccounts.forEach((account) => {
+      if (account.username) {
+        this.db.data.accounts.push({
+          ...account,
+          tokenState: 'unknown',
+          failedLogin: false,
+        });
+      }
+    });
+    this.db.write();
   }
 
   /**
@@ -165,6 +173,10 @@ export class AccountManager {
     return this.currentUsername;
   }
 
+  get hasAccountsAvailable(): boolean {
+    return this.db.data.accounts.some((a) => !a.failedLogin);
+  }
+
   /**
    * Log in to a Twitter account
    * Tries to log in with a random account, rotating through accounts on failure
@@ -172,7 +184,10 @@ export class AccountManager {
   logIn = pDebounce(async () => {
     if (this.loggedIn) return;
 
-    if (!this.hasAccounts()) {
+    const loggingableAccounts = this.db.data.accounts.filter(
+      (a) => !a.failedLogin,
+    );
+    if (!loggingableAccounts.length) {
       throw new Error('No accounts available for login');
     }
 
@@ -183,15 +198,14 @@ export class AccountManager {
 
     // Keep trying to log into accounts unless all don't work
     while (!this.loggedIn) {
-      let account: AccountInfo;
-      do {
-        if (this.failedAccountUsernames.size >= this.accounts.length) {
-          console.error('Resetting failed accounts list');
-          this.failedAccountUsernames = new Set();
-        }
-        account =
-          this.accounts[Math.floor(Math.random() * this.accounts.length)];
-      } while (this.failedAccountUsernames.has(account.username));
+      let account: AccountState;
+      account =
+        this.db.data.accounts.find(
+          (account) => account.tokenState === 'working',
+        ) ||
+        loggingableAccounts[
+          Math.floor(Math.random() * loggingableAccounts.length)
+        ];
 
       try {
         const scraper = new Scraper();
@@ -227,9 +241,17 @@ export class AccountManager {
           console.debug(`Logged into @${account.username}`);
           this.currentUsername = account.username;
           const cookies = await scraper.getCookies();
-          console.debug(
-            `auth_token: ${cookies.find((c) => c.key === 'auth_token')?.value}`,
-          );
+          const authTokenCookie = cookies.find((c) => c.key === 'auth_token');
+          console.debug(`auth_token: ${authTokenCookie?.value}`);
+
+          // Update account state with working token
+          if (authTokenCookie && authTokenCookie.value) {
+            account.authToken = authTokenCookie.value;
+            account.tokenState = 'working';
+            account.failedLogin = false;
+            account.lastUsed = Date.now();
+          }
+          this.db.write();
 
           // Transfer cookies to our jar
           for (const cookie of cookies) {
@@ -244,7 +266,12 @@ export class AccountManager {
           `Couldn't login into @${account.username}:`,
           (error as Error).toString(),
         );
-        this.failedAccountUsernames.add(account.username);
+
+        // Update account state to mark as failed
+        account.tokenState = 'failed';
+        account.failedLogin = true;
+        account.lastFailedAt = Date.now();
+        this.db.write();
 
         // Special handling for rate limiting
         if ((error as Error).toString().includes('ArkoseLogin')) {
@@ -360,13 +387,12 @@ export class AccountManager {
       headers: Headers,
       url?: string,
     ): Promise<void> {
-      if (self.hasAccounts() && !self.isLoggedIn()) {
+      if (self.hasAccountsAvailable && !self.isLoggedIn()) {
         await self.logIn();
       }
 
       if (self.isLoggedIn()) {
-        // Use the account manager's cookie jar
-        const urlString = url || 'https://twitter.com';
+        const urlString = 'https://twitter.com';
         headers.set('cookie', self.cookieJar.getCookieStringSync(urlString));
         const cookies = await self.cookieJar.getCookies(urlString);
         const xCsrfToken = cookies.find((cookie) => cookie.key === 'ct0');
@@ -378,7 +404,6 @@ export class AccountManager {
           `Bearer ${AccountManager.DEFAULT_BEARER_TOKEN}`,
         );
       } else {
-        // Fall back to guest auth by setting basic headers
         headers.set(
           'authorization',
           `Bearer ${AccountManager.DEFAULT_BEARER_TOKEN}`,
@@ -389,3 +414,9 @@ export class AccountManager {
     return auth;
   }
 }
+
+export const accountManager = new AccountManager([], {
+  statePath:
+    process.env.ACCOUNTS_STATE_PATH ||
+    path.join(process.cwd(), 'accounts-state.json'),
+});

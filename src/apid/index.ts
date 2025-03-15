@@ -1,22 +1,22 @@
 import { Hono } from 'hono';
-import { TwitterGuestAuth } from '../auth';
-import { getTweet, getTweetAnonymous, type Tweet } from '../tweets';
+import { TwitterGuestAuth } from '../auth.js';
+import { getTweet, getTweetAnonymous, type Tweet } from '../tweets.js';
 import {
+  accountManager,
   AccountManager,
-  parseAccountList,
   type AccountInfo,
-} from '../account-manager';
+} from '../account-manager.js';
+import { router as communitiesRouter } from './community.js';
 
 declare global {
   var PLATFORM_NODE: boolean;
 }
 globalThis.PLATFORM_NODE = true;
 
-const accountManager = new AccountManager();
-
 const app = new Hono();
 
 app.get('/', (c) => c.text('Twitter Scraper API'));
+app.route('/api/communities', communitiesRouter);
 
 app.get('/api/tweets/:id', async (c) => {
   const id = c.req.param('id');
@@ -25,7 +25,7 @@ app.get('/api/tweets/:id', async (c) => {
   let tweet: Tweet | null;
   let fetchedWith = 'anonymous';
 
-  if (useAccount && accountManager.hasAccounts()) {
+  if (useAccount && accountManager.hasAccountsAvailable) {
     if (!accountManager.isLoggedIn()) {
       await accountManager.logIn();
     }
@@ -61,7 +61,6 @@ app.post('/api/accounts/import', async (c) => {
     return c.json({
       message: 'Accounts imported successfully',
       count: accounts.length,
-      accounts: accountManager.getAccountSummaries(),
     });
   } catch (error) {
     console.error('Error importing accounts:', error);
@@ -69,16 +68,9 @@ app.post('/api/accounts/import', async (c) => {
   }
 });
 
-app.get('/api/accounts', (c) => {
-  return c.json({
-    accounts: accountManager.getAccountSummaries(),
-    currentlyLoggedIn: accountManager.isLoggedIn(),
-    currentUsername: accountManager.getCurrentUsername(),
-  });
-});
 app.post('/api/accounts/login', async (c) => {
   try {
-    if (!accountManager.hasAccounts()) {
+    if (!accountManager.hasAccountsAvailable) {
       return c.json({ error: 'No accounts available' }, 400);
     }
 
@@ -103,7 +95,7 @@ app.post('/api/accounts/login', async (c) => {
 });
 
 app.get('/api/scraper', (c) => {
-  if (!accountManager.hasAccounts()) {
+  if (!accountManager.hasAccountsAvailable) {
     return c.json({ error: 'No accounts available' }, 400);
   }
 
@@ -115,4 +107,8 @@ app.get('/api/scraper', (c) => {
   });
 });
 
-export default app;
+// https://github.com/orgs/honojs/discussions/3722
+export default {
+  idleTimeout: 255, // seconds
+  fetch: app.fetch,
+};

@@ -117,3 +117,5 @@ docs/
 
 # NPM lockfile
 package-lock.json
+
+accounts-state.json
