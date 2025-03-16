@@ -151,22 +151,24 @@ export class AccountManager {
     });
     this.db.write();
   }
-  
+
   /**
    * Delete an account by username
    */
   deleteAccount(username: string): boolean {
     const initialLength = this.db.data.accounts.length;
-    this.db.data.accounts = this.db.data.accounts.filter(account => account.username !== username);
-    
+    this.db.data.accounts = this.db.data.accounts.filter(
+      (account) => account.username !== username,
+    );
+
     if (this.db.data.accounts.length !== initialLength) {
       this.db.write();
       return true;
     }
-    
+
     return false;
   }
-  
+
   /**
    * Get all accounts
    */

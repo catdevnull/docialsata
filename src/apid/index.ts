@@ -4,6 +4,7 @@ import { router as communitiesRouter } from './community.js';
 import { router as tokensRouter } from './token.js';
 import { router as accountsRouter } from './account.js';
 import { router as tweetsRouter } from './tweets.js';
+import { router as usersRouter } from './users.js';
 
 declare global {
   var PLATFORM_NODE: boolean;
@@ -69,6 +70,7 @@ app.route('/api/communities', communitiesRouter);
 app.route('/api/tokens', tokensRouter);
 app.route('/api/accounts', accountsRouter);
 app.route('/api/tweets', tweetsRouter);
+app.route('/api/users', usersRouter);
 
 // https://github.com/orgs/honojs/discussions/3722
 export default {

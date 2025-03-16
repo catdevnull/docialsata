@@ -7,17 +7,11 @@ import { verifyToken } from './auth.js';
 
 export const router = new Hono();
 
-router.get('/api/tweets/:id', verifyToken, async (c) => {
+router.get('/:id', verifyToken, async (c) => {
   const id = c.req.param('id');
-  const useAccount = c.req.query('use_account') === 'true';
-
   let tweet: Tweet | null;
   let fetchedWith = 'anonymous';
-
-  if (useAccount && accountManager.hasAccountsAvailable) {
-    if (!accountManager.isLoggedIn()) {
-      await accountManager.logIn();
-    }
+  if (accountManager.hasAccountsAvailable) {
     tweet = await getTweet(id, accountManager.createAuthInstance());
     fetchedWith = accountManager.getCurrentUsername() || 'anonymous';
   } else {
@@ -30,8 +24,5 @@ router.get('/api/tweets/:id', verifyToken, async (c) => {
     return c.json({ error: 'Tweet not found', metadata }, 404);
   }
 
-  return c.json({
-    tweet,
-    metadata,
-  });
+  return c.json({ tweet, metadata });
 });
