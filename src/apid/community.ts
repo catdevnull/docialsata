@@ -1,8 +1,7 @@
 import { z } from 'zod';
-import { parseTimelineTweetsV2, TimelineV2 } from '../timeline-v2.js';
+import type { TimelineV2 } from '../timeline-v2.js';
 import { requestApi } from '../api.js';
 import { ApiError } from '../errors.js';
-import { writeFileSync } from 'fs';
 import { Hono } from 'hono';
 import { accountManager } from '../account-manager.js';
 
@@ -102,6 +101,8 @@ router.get('/:id/members', async (c) => {
   } catch (error) {
     if (error instanceof ApiError) {
       return c.json({ error: error.message }, 500);
+    } else {
+      throw error;
     }
   }
 });
