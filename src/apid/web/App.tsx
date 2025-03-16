@@ -1,7 +1,7 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Link, Route, Routes } from 'react-router';
-import useLocalStorageState from 'use-local-storage-state';
+import TokenInput, { useToken } from './TokenInput';
 import { Download } from 'lucide-react';
 import type { Tweet } from '../../tweets';
 import {
@@ -54,59 +54,7 @@ const Playground = () => (
   </section>
 );
 
-const useToken = () => {
-  const [token, setToken] = useLocalStorageState('token', {
-    defaultValue: '',
-  });
-  return [token, setToken] as const;
-};
 
-const TokenInput = () => {
-  const [token, setToken] = useToken();
-  const [state, setState] = React.useState<
-    null | 'loading' | 'error' | 'success'
-  >(null);
-  useEffect(() => {
-    (async () => {
-      if (!token) return;
-      try {
-        setState('loading');
-        const res = await fetch('/api/tokens/me', {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        });
-        if (res.ok) setState('success');
-        else setState('error');
-      } catch (error) {
-        setState('error');
-      }
-    })();
-  }, [token]);
-  return (
-    <div className="field is-horizontal">
-      <div className="field-label is-normal">
-        <label className="label">Token</label>
-        {state === 'success' && <span className="tag is-success">Valid</span>}
-        {state === 'error' && <span className="tag is-danger">Invalid</span>}
-        {state === 'loading' && <span className="tag is-info">Loading...</span>}
-      </div>
-      <div className="field-body">
-        <div className="field">
-          <p className="control">
-            <input
-              className="input"
-              type="password"
-              placeholder="Token"
-              value={token}
-              onChange={(e) => setToken(e.target.value)}
-            />
-          </p>
-        </div>
-      </div>
-    </div>
-  );
-};
 
 const TweetsAndRepliesForm = () => {
   const [token] = useToken();
