@@ -1,10 +1,9 @@
-import React, { useEffect, useState } from 'react';
-import * as ReactDOM from 'react-dom';
+import React, { useCallback, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Link, Route, Routes } from 'react-router';
 import useLocalStorageState from 'use-local-storage-state';
 import { Download } from 'lucide-react';
-import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
+import type { Tweet } from '../../tweets';
 
 const Index = () => (
   <section className="section">
@@ -57,20 +56,16 @@ const TokenInput = () => {
   >(null);
   useEffect(() => {
     (async () => {
+      if (!token) return;
       try {
-        if (token) {
-          setState('loading');
-          const res = await fetch('/api/tokens/me', {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          });
-          if (res.ok) {
-            setState('success');
-          } else {
-            setState('error');
-          }
-        }
+        setState('loading');
+        const res = await fetch('/api/tokens/me', {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+        if (res.ok) setState('success');
+        else setState('error');
       } catch (error) {
         setState('error');
       }
@@ -101,84 +96,61 @@ const TokenInput = () => {
   );
 };
 
-// Custom hook for fetching tweets and replies
-const useTweetsAndReplies = (formattedHandle: string | null, until: string, token: string) => {
-  return useQuery({
-    queryKey: ['tweetsAndReplies', formattedHandle, until, token],
-    queryFn: async () => {
-      if (!formattedHandle || !token) {
-        return { tweets: [] };
-      }
-
-      const endpoint = `/api/users/${formattedHandle}/tweets-and-replies${
-        until ? `?until=${until}` : ''
-      }`;
-
-      const response = await fetch(endpoint, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'An error occurred while fetching tweets');
-      }
-
-      return data;
-    },
-    enabled: false, // Don't run automatically, wait for manual trigger
-  });
-};
-
 const TweetsAndRepliesForm = () => {
   const [token] = useToken();
   const [idOrHandle, setIdOrHandle] = useState('');
   const [until, setUntil] = useState('40');
-  const [formattedHandle, setFormattedHandle] = useState<string | null>(null);
-  const [validationError, setValidationError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  // Using TanStack Query for data fetching
-  const {
-    data,
-    error,
-    isLoading,
-    isError,
-    refetch,
-    isFetched,
-  } = useTweetsAndReplies(formattedHandle, until, token);
+  const validationError = !idOrHandle
+    ? 'Please enter a user ID or handle'
+    : !idOrHandle.startsWith('@') && !/\d+$/.test(idOrHandle)
+    ? 'Please enter a valid handle'
+    : !until
+    ? 'Please enter a number of tweets'
+    : null;
 
-  const tweets = data?.tweets || [];
+  const [data, setData] = useState<{ tweets: Tweet[] } | null>(null);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setValidationError(null);
+  const refetch = useCallback(
+    async (e?: Event) => {
+      e?.preventDefault();
+      setIsLoading(true);
+      setError(null);
+      try {
+        const endpoint = `/api/users/${idOrHandle}/tweets-and-replies${
+          until ? `?until=${until}` : ''
+        }`;
 
-    if (!token) {
-      setValidationError('Please enter a valid token first');
-      return;
-    }
-
-    if (!idOrHandle) {
-      setValidationError('Please enter a user ID or handle');
-      return;
-    }
-
-    // Format the handle and trigger the query
-    const formatted = idOrHandle.startsWith('@')
-      ? idOrHandle
-      : idOrHandle.startsWith('id:')
-      ? idOrHandle.slice(3)
-      : `@${idOrHandle}`;
-      
-    setFormattedHandle(formatted);
-    refetch();
-  };
+        const response = await fetch(endpoint, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(
+            data.error || 'An error occurred while fetching tweets',
+          );
+        }
+        setData(data);
+      } catch (error) {
+        setError(
+          error instanceof Error
+            ? error.message
+            : 'An error occurred while fetching tweets',
+        );
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [idOrHandle, until, token],
+  );
 
   return (
     <div>
-      <form onSubmit={handleSubmit}>
+      <form onSubmit={refetch}>
         <div className="field">
           <label className="label">User ID or Handle</label>
           <div className="control">
@@ -187,11 +159,12 @@ const TweetsAndRepliesForm = () => {
               type="text"
               placeholder="Enter @username or user ID"
               value={idOrHandle}
+              disabled={isLoading}
               onChange={(e) => setIdOrHandle(e.target.value)}
             />
             <p className="help">
-              For username, you can optionally prefix with @ (e.g. @username).
-              For IDs, use the numeric ID.
+              For username, you can prefix with @ (e.g. @username). For IDs, use
+              the numeric ID.
             </p>
           </div>
         </div>
@@ -204,6 +177,7 @@ const TweetsAndRepliesForm = () => {
               type="number"
               placeholder="Number of tweets (default: 40)"
               value={until}
+              disabled={isLoading}
               onChange={(e) => setUntil(e.target.value)}
             />
             <p className="help">
@@ -225,29 +199,26 @@ const TweetsAndRepliesForm = () => {
       </form>
 
       {validationError && (
-        <div className="notification is-danger mt-4">
-          <button className="delete" onClick={() => setValidationError(null)}></button>
-          {validationError}
-        </div>
+        <div className="notification is-danger mt-4">{validationError}</div>
       )}
-      
-      {isError && (
+
+      {error && (
         <div className="notification is-danger mt-4">
           <button className="delete" onClick={() => refetch()}></button>
-          {error instanceof Error ? error.message : 'An error occurred while fetching tweets'}
+          {error}
         </div>
       )}
 
-      {isFetched && tweets.length > 0 && (
+      {data && (
         <div className="mt-4">
           <div className="is-flex is-justify-content-space-between is-align-items-center mb-3">
             <h3 className="title is-5 mb-0">
-              Results ({tweets.length} tweets)
+              Results ({data.tweets.length} tweets)
             </h3>
             <button
               className="button is-small is-info"
               onClick={() => {
-                const dataStr = JSON.stringify(tweets, null, 2);
+                const dataStr = JSON.stringify(data.tweets, null, 2);
                 const dataUri = `data:application/json;charset=utf-8,${encodeURIComponent(
                   dataStr,
                 )}`;
@@ -272,7 +243,7 @@ const TweetsAndRepliesForm = () => {
             className="tweets-container"
             style={{ maxHeight: '500px', overflowY: 'auto' }}
           >
-            {tweets.map((tweet: any, index: number) => (
+            {data.tweets.map((tweet: any, index: number) => (
               <div key={index} className="box mb-3">
                 <pre style={{ whiteSpace: 'pre-wrap' }}>
                   {JSON.stringify(tweet, null, 2)}
@@ -286,23 +257,11 @@ const TweetsAndRepliesForm = () => {
   );
 };
 
-// Create a client
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      refetchOnWindowFocus: false,
-      retry: 1,
-    },
-  },
-});
-
 createRoot(document.getElementById('root')!).render(
-  <QueryClientProvider client={queryClient}>
-    <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<Index />} />
-        <Route path="/playground" element={<Playground />} />
-      </Routes>
-    </BrowserRouter>
-  </QueryClientProvider>,
+  <BrowserRouter>
+    <Routes>
+      <Route path="/" element={<Index />} />
+      <Route path="/playground" element={<Playground />} />
+    </Routes>
+  </BrowserRouter>,
 );
