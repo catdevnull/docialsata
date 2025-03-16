@@ -3,7 +3,7 @@
     "provider": "bun",
   "steps": {
     "install": {
-      "commands": ["pnpm install"]
+      "commands": ["corepack enable", "pnpm install"]
     },
     "build": {
       "inputs": [{ "step": "install" }]
