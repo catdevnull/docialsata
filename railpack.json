@@ -1,0 +1,15 @@
+{
+  "$schema": "https://schema.railpack.com",
+    "provider": "bun",
+  "steps": {
+    "install": {
+      "commands": ["pnpm install"]
+    },
+    "build": {
+      "inputs": [{ "step": "install" }]
+    }
+  },
+  "deploy": {
+    "startCommand": "bun start"
+  }
+}
