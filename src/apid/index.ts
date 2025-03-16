@@ -42,75 +42,50 @@ app.get('/', (c) => {
       <meta charset="UTF-8">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
       <title>Twitter Scraper API</title>
+      <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
       <style>
-        body {
-          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
-          max-width: 800px;
-          margin: 0 auto;
-          padding: 20px;
-          color: #333;
-        }
-        h1 { color: #1DA1F2; }
-        a { color: #1DA1F2; text-decoration: none; }
-        a:hover { text-decoration: underline; }
-        ul { padding-left: 20px; }
-        li { margin: 10px 0; }
-        .admin-panel {
-          background-color: #f8f9fa;
-          border-radius: 8px;
-          padding: 20px;
-          margin-top: 20px;
-          box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        .card {
-          background-color: #f8f9fa;
-          border-radius: 8px;
-          padding: 20px;
-          margin-top: 20px;
-          box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        code {
-          background-color: #f4f4f4;
-          padding: 2px 5px;
-          border-radius: 3px;
-          font-family: monospace;
-        }
+        .twitter-blue { color: #1DA1F2; }
+        .twitter-blue-bg { background-color: #1DA1F2; }
       </style>
     </head>
     <body>
-      <h1>Twitter Scraper API</h1>
-      <p>Welcome to the Twitter Scraper API.</p>
-      
-      ${
-        isLoggedIn
-          ? `
-      <div class="admin-panel">
-        <h2>Admin Panel</h2>
-        <ul>
-          <li><a href="/api/tokens">Manage API Tokens</a></li>
-          <li><a href="/api/accounts">Manage Twitter Accounts</a></li>
-          <li><a href="/api/tokens/logout">Logout</a></li>
-        </ul>
-      </div>
-      `
-          : `
-      <div class="admin-panel">
-        <h2>Admin Access</h2>
-        <p>Admin features are protected. Please <a href="/api/tokens/login">login</a> to access the admin panel.</p>
-      </div>
-      `
-      }
-      
-      <div class="card">
-        <h2>API Usage</h2>
-        <p>To use the API, include your token in the Authorization header:</p>
-        <code>Authorization: Bearer YOUR_TOKEN</code>
-        <p>Available endpoints:</p>
-        <ul>
-          <li><code>GET /api/tweets/:id</code> - Get a tweet by ID</li>
-          <li><code>GET /api/scraper</code> - Get scraper status</li>
-        </ul>
-      </div>
+      <section class="section">
+        <div class="container">
+          <h1 class="title twitter-blue">Twitter Scraper API</h1>
+          <p class="subtitle">Welcome to the Twitter Scraper API.</p>
+          
+          ${
+            isLoggedIn
+              ? `
+          <div class="box mt-5">
+            <h2 class="title is-4 twitter-blue">Admin Panel</h2>
+            <div class="buttons">
+              <a href="/api/tokens" class="button is-info">Manage API Tokens</a>
+              <a href="/api/accounts" class="button is-info">Manage Twitter Accounts</a>
+              <a href="/api/tokens/logout" class="button is-danger">Logout</a>
+            </div>
+          </div>
+          `
+              : `
+          <div class="box mt-5">
+            <h2 class="title is-4 twitter-blue">Admin Access</h2>
+            <p>Admin features are protected. Please <a href="/api/tokens/login" class="has-text-info">login</a> to access the admin panel.</p>
+          </div>
+          `
+          }
+          
+          <div class="box mt-5">
+            <h2 class="title is-4 twitter-blue">API Usage</h2>
+            <p>To use the API, include your token in the Authorization header:</p>
+            <pre class="has-background-light p-3 mt-2 mb-4"><code>Authorization: Bearer YOUR_TOKEN</code></pre>
+            <p class="mb-2">Available endpoints:</p>
+            <ul class="ml-5">
+              <li><code class="has-background-light">GET /api/tweets/:id</code> - Get a tweet by ID</li>
+              <li><code class="has-background-light">GET /api/scraper</code> - Get scraper status</li>
+            </ul>
+          </div>
+        </div>
+      </section>
     </body>
     </html>
   `);

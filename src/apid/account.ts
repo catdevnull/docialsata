@@ -48,229 +48,143 @@ router.get('/', verifyAdmin, (c) => {
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title>Account Management</title>
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
         <style>
-          body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
-              Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue',
-              sans-serif;
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 20px;
-            color: #333;
-          }
-          h1,
-          h2 {
-            color: #1da1f2;
-          }
-          .container {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 20px;
-          }
-          @media (max-width: 768px) {
-            .container {
-              grid-template-columns: 1fr;
-            }
-          }
-          .card {
-            background-color: #f8f9fa;
-            border-radius: 8px;
-            padding: 20px;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-          }
-          form {
-            display: flex;
-            flex-direction: column;
-            gap: 15px;
-          }
-          input,
-          textarea,
-          select {
-            padding: 10px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            font-size: 16px;
-          }
-          textarea {
-            min-height: 200px;
-            font-family: monospace;
-          }
-          button {
-            background-color: #1da1f2;
-            color: white;
-            border: none;
-            padding: 10px 15px;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 16px;
-          }
-          button:hover {
-            background-color: #0c85d0;
-          }
-          table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 10px;
-          }
-          th,
-          td {
-            border: 1px solid #ddd;
-            padding: 12px;
-            text-align: left;
-          }
-          th {
-            background-color: #f2f2f2;
-          }
-          tr:nth-child(even) {
-            background-color: #f9f9f9;
-          }
-          pre {
-            background-color: #f4f4f4;
-            padding: 10px;
-            border-radius: 4px;
-            overflow-x: auto;
-          }
-          .status-working {
-            color: #27ae60;
-            font-weight: bold;
-          }
-          .status-failed {
-            color: #e74c3c;
-            font-weight: bold;
-          }
-          .status-unknown {
-            color: #f39c12;
-            font-weight: bold;
-          }
-          .nav-links {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 20px;
-          }
-          .nav-links a {
-            color: #1da1f2;
-            text-decoration: none;
-          }
-          .nav-links a:hover {
-            text-decoration: underline;
-          }
-          .delete-btn {
-            background-color: #e74c3c;
-            color: white;
-            border: none;
-            padding: 5px 10px;
-            border-radius: 4px;
-            cursor: pointer;
-          }
-          .delete-btn:hover {
-            background-color: #c0392b;
-          }
+          .twitter-blue { color: #1DA1F2; }
+          .status-working { color: #23d160; font-weight: bold; }
+          .status-failed { color: #ff3860; font-weight: bold; }
+          .status-unknown { color: #ffdd57; font-weight: bold; }
         </style>
       </head>
       <body>
-        <div class="nav-links">
-          <h1>Account Management</h1>
-          <div>
-            <a href="/api/tokens">Token Management</a> |
-            <a href="/api/tokens/logout" style="color: #e74c3c;">Logout</a>
-          </div>
-        </div>
-
-        <div class="container">
-          <div class="card">
-            <h2>Import Accounts</h2>
-            <form action="/api/accounts/import-bulk" method="post">
-              <div>
-                <label for="format">Format:</label>
-                <select name="format" id="format">
-                  <option value="${defaultAccountListFormat}" selected>
-                    ${defaultAccountListFormat}
-                  </option>
-                  <option
-                    value="username:password:email:emailPassword:authToken:ANY"
-                  >
-                    username:password:email:emailPassword:authToken:ANY
-                  </option>
-                  <option value="username:password:email:emailPassword:ANY:ANY">
-                    username:password:email:emailPassword:ANY:ANY
-                  </option>
-                </select>
+        <section class="section">
+          <div class="container">
+            <div class="level">
+              <div class="level-left">
+                <div class="level-item">
+                  <h1 class="title twitter-blue">Account Management</h1>
+                </div>
               </div>
-              <textarea
-                name="accounts"
-                placeholder="Paste account list here, one account per line"
-                required
-              ></textarea>
-              <button type="submit">Import Accounts</button>
-            </form>
-          </div>
+              <div class="level-right">
+                <div class="level-item">
+                  <a href="/" class="button is-light mr-2">Home</a>
+                  <a href="/api/tokens" class="button is-light mr-2">Tokens</a>
+                  <a href="/api/tokens/logout" class="button is-danger">Logout</a>
+                </div>
+              </div>
+            </div>
 
-          <div class="card">
-            <h2>Account Status</h2>
-            ${accounts.length > 0
-              ? html`
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Username</th>
-                        <th>Status</th>
-                        <th>Last Used</th>
-                        <th>Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      ${accounts.map(
-                        (account) => html`
-                          <tr>
-                            <td>${account.username}</td>
-                            <td class="status-${account.tokenState}">
-                              ${account.failedLogin
-                                ? 'Login Failed'
-                                : account.tokenState.toUpperCase()}
-                            </td>
-                            <td>
-                              ${account.lastUsed
-                                ? new Date(account.lastUsed).toLocaleString()
-                                : 'Never'}
-                            </td>
-                            <td>
-                              <form
-                                action="/api/accounts/delete/${encodeURIComponent(
-                                  account.username,
-                                )}"
-                                method="post"
-                              >
-                                <button type="submit" class="delete-btn">
-                                  Delete
-                                </button>
-                              </form>
-                            </td>
-                          </tr>
-                        `,
-                      )}
-                    </tbody>
-                  </table>
-                `
-              : html`<p>No accounts available.</p>`}
-          </div>
-        </div>
+            <div class="columns is-desktop">
+              <div class="column">
+                <div class="box">
+                  <h2 class="title is-4 twitter-blue">Import Accounts</h2>
+                  <form action="/api/accounts/import-bulk" method="post">
+                    <div class="field">
+                      <label class="label" for="format">Format:</label>
+                      <div class="control">
+                        <div class="select is-fullwidth">
+                          <select name="format" id="format">
+                            <option value="${defaultAccountListFormat}" selected>
+                              ${defaultAccountListFormat}
+                            </option>
+                            <option value="username:password:email:emailPassword:authToken:ANY">
+                              username:password:email:emailPassword:authToken:ANY
+                            </option>
+                            <option value="username:password:email:emailPassword:ANY:ANY">
+                              username:password:email:emailPassword:ANY:ANY
+                            </option>
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="field">
+                      <div class="control">
+                        <textarea
+                          class="textarea"
+                          name="accounts"
+                          placeholder="Paste account list here, one account per line"
+                          rows="10"
+                          required
+                        ></textarea>
+                      </div>
+                    </div>
+                    <div class="field">
+                      <div class="control">
+                        <button type="submit" class="button is-info is-fullwidth">Import Accounts</button>
+                      </div>
+                    </div>
+                  </form>
+                </div>
+              </div>
 
-        <div class="card" style="margin-top: 20px;">
-          <h2>API Endpoints</h2>
-          <ul>
-            <li>
-              <code>POST /api/accounts/import</code> - Import accounts via API
-              (JSON)
-            </li>
-            <li>
-              <code>POST /api/accounts/login</code> - Force login with a
-              different account
-            </li>
-          </ul>
+              <div class="column">
+                <div class="box">
+                  <h2 class="title is-4 twitter-blue">Account Status</h2>
+                  ${accounts.length > 0
+                    ? html`
+                      <div class="table-container">
+                        <table class="table is-fullwidth is-striped is-hoverable">
+                          <thead>
+                            <tr>
+                              <th>Username</th>
+                              <th>Status</th>
+                              <th>Last Used</th>
+                              <th>Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            ${accounts.map(
+                              (account) => html`
+                                <tr>
+                                  <td>${account.username}</td>
+                                  <td class="status-${account.tokenState}">
+                                    ${account.failedLogin
+                                      ? 'Login Failed'
+                                      : account.tokenState.toUpperCase()}
+                                  </td>
+                                  <td>
+                                    ${account.lastUsed
+                                      ? new Date(account.lastUsed).toLocaleString()
+                                      : 'Never'}
+                                  </td>
+                                  <td>
+                                    <form
+                                      action="/api/accounts/delete/${encodeURIComponent(
+                                        account.username,
+                                      )}"
+                                      method="post"
+                                    >
+                                      <button type="submit" class="button is-small is-danger">
+                                        Delete
+                                      </button>
+                                    </form>
+                                  </td>
+                                </tr>
+                              `,
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    `
+                    : html`<p class="has-text-centered">No accounts available.</p>`}
+                </div>
+              </div>
+            </div>
 
-          <h3>Example API Usage</h3>
-          <pre>
+            <div class="box mt-5">
+              <h2 class="title is-4 twitter-blue">API Endpoints</h2>
+              <div class="content">
+                <ul>
+                  <li>
+                    <code class="has-background-light">POST /api/accounts/import</code> - Import accounts via API (JSON)
+                  </li>
+                  <li>
+                    <code class="has-background-light">POST /api/accounts/login</code> - Force login with a different account
+                  </li>
+                </ul>
+
+                <h4 class="title is-5 mt-4">Example API Usage</h4>
+                <pre class="has-background-light p-3">
 // Import accounts via API
 fetch('/api/accounts/import', {
   method: 'POST',
@@ -291,9 +205,11 @@ fetch('/api/accounts/import', {
     ]
   })
 });
-        </pre
-          >
-        </div>
+                </pre>
+              </div>
+            </div>
+          </div>
+        </section>
       </body>
     </html>
   `);
