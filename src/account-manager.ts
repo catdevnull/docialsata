@@ -349,15 +349,15 @@ export class AccountManager {
       const clonedResponse = response.clone();
       try {
         const json = await clonedResponse.json();
-        if (
-          'errors' in (json as any) &&
-          (json as any).errors != null &&
-          (json as any).errors.length > 0
-        ) {
-          console.warn(`Error in response, retrying with another account`);
-          await self.logIn();
-          return await fetchWithAuthenticatedAccount(input, init);
-        }
+        // if (
+        //   'errors' in (json as any) &&
+        //   (json as any).errors != null &&
+        //   (json as any).errors.length > 0
+        // ) {
+        //   console.warn(`Error in response, retrying with another account`);
+        //   await self.logIn();
+        //   return await fetchWithAuthenticatedAccount(input, init);
+        // }
 
         return new Response(JSON.stringify(json), {
           status: response.status,
