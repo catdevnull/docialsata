@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.railpack.com",
-    "provider": "bun",
+    "provider": "node",
   "steps": {
     "install": {
       "commands": ["corepack enable", "pnpm install"]
