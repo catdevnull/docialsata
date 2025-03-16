@@ -434,16 +434,30 @@ router.get('/accounts', verifyAdmin, (c) => {
                                   <tr>
                                     <td>${account.username}</td>
                                     <td class="status-${account.tokenState}">
-                                      ${account.failedLogin
-                                        ? 'Login Failed'
-                                        : account.tokenState.toUpperCase()}
+                                      ${
+                                        account.failedLogin
+                                          ? 'Login Failed'
+                                          : account.tokenState.toUpperCase()
+                                      }
+                                      ${
+                                        account.rateLimitedUntil
+                                          ? ` (Rate Limited for ${Math.round(
+                                              (account.rateLimitedUntil -
+                                                Date.now()) /
+                                                1000,
+                                            )}s)`
+                                          : ''
+                                      }
+                                    </td>
                                     </td>
                                     <td>
-                                      ${account.lastUsed
-                                        ? new Date(
-                                            account.lastUsed,
-                                          ).toLocaleString()
-                                        : 'Never'}
+                                      ${
+                                        account.lastUsed
+                                          ? new Date(
+                                              account.lastUsed,
+                                            ).toLocaleString()
+                                          : 'Never'
+                                      }
                                     </td>
                                     <td>
                                       <form

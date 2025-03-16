@@ -19,6 +19,7 @@ export type AccountState = AccountInfo & {
   failedLogin: boolean;
   lastUsed?: number;
   lastFailedAt?: number;
+  rateLimitedUntil?: number;
 };
 
 type DbData = {
@@ -87,7 +88,7 @@ const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 // Debounce function implementation for login
 function pDebounce<T extends (...args: any[]) => Promise<any>>(
   fn: T,
-  wait: number = 1000,
+  wait: number = 0,
 ) {
   let pending: Promise<any> | null = null;
   const debounced = ((...args: Parameters<T>) => {
@@ -112,10 +113,9 @@ function pDebounce<T extends (...args: any[]) => Promise<any>>(
  */
 export class AccountManager {
   private cookieJar = new CookieJar();
-  private loggedIn = false;
+  private currentAccount: AccountState | null = null;
   public static DEFAULT_BEARER_TOKEN =
     'AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA';
-  private currentUsername: string | null = null;
   private db: ReturnType<typeof JSONFileSyncPreset<DbData>>;
 
   constructor(accounts: AccountInfo[] = [], options?: { statePath?: string }) {
@@ -152,9 +152,6 @@ export class AccountManager {
     this.db.write();
   }
 
-  /**
-   * Delete an account by username
-   */
   deleteAccount(username: string): boolean {
     const initialLength = this.db.data.accounts.length;
     this.db.data.accounts = this.db.data.accounts.filter(
@@ -169,32 +166,11 @@ export class AccountManager {
     return false;
   }
 
-  /**
-   * Get all accounts
-   */
   getAllAccounts(): AccountState[] {
     return this.db.data.accounts;
   }
-
-  /**
-   * Check if the manager is logged in
-   */
   isLoggedIn(): boolean {
-    return this.loggedIn;
-  }
-
-  /**
-   * Get the current cookie jar
-   */
-  getCookieJar(): CookieJar {
-    return this.cookieJar;
-  }
-
-  /**
-   * Get the current username (if logged in)
-   */
-  getCurrentUsername(): string | null {
-    return this.currentUsername;
+    return !!this.currentAccount;
   }
 
   get hasAccountsAvailable(): boolean {
@@ -206,30 +182,32 @@ export class AccountManager {
    * Tries to log in with a random account, rotating through accounts on failure
    */
   logIn = pDebounce(async () => {
-    if (this.loggedIn) return;
-
-    const loggingableAccounts = this.db.data.accounts.filter(
-      (a) => !a.failedLogin,
-    );
+    const loggingableAccounts = this.db.data.accounts
+      .filter(
+        (a) =>
+          !a.failedLogin &&
+          a.username !== this.currentAccount?.username &&
+          (!a.rateLimitedUntil || a.rateLimitedUntil < Date.now()),
+      )
+      .sort((a, b) =>
+        a.tokenState === 'working'
+          ? -1
+          : b.tokenState === 'working'
+          ? 1
+          : Math.random() - 0.5,
+      );
     if (!loggingableAccounts.length) {
       throw new Error('No accounts available for login');
     }
 
-    // Reset login state
     this.cookieJar = new CookieJar();
-    this.loggedIn = false;
-    this.currentUsername = null;
+    this.currentAccount = null;
 
     // Keep trying to log into accounts unless all don't work
-    while (!this.loggedIn) {
+    let i = 0;
+    while (!this.isLoggedIn()) {
       let account: AccountState;
-      account =
-        this.db.data.accounts.find(
-          (account) => account.tokenState === 'working',
-        ) ||
-        loggingableAccounts[
-          Math.floor(Math.random() * loggingableAccounts.length)
-        ];
+      account = loggingableAccounts[i];
 
       try {
         const scraper = new Scraper();
@@ -237,7 +215,9 @@ export class AccountManager {
         try {
           if (!account.authToken) throw new Error('No auth token available');
           await scraper.loginWithToken(account.authToken);
-          this.loggedIn = await scraper.isLoggedIn();
+          if (await scraper.isLoggedIn()) {
+            this.currentAccount = account;
+          }
         } catch (error) {
           if (account.username && account.password) {
             console.warn(
@@ -258,12 +238,13 @@ export class AccountManager {
             account.email,
             account.twoFactorSecret,
           );
-          this.loggedIn = await scraper.isLoggedIn();
+          if (await scraper.isLoggedIn()) {
+            this.currentAccount = account;
+          }
         }
 
-        if (this.loggedIn) {
+        if (this.isLoggedIn()) {
           console.debug(`Logged into @${account.username}`);
-          this.currentUsername = account.username;
           const cookies = await scraper.getCookies();
           const authTokenCookie = cookies.find((c) => c.key === 'auth_token');
           console.debug(`auth_token: ${authTokenCookie?.value}`);
@@ -301,6 +282,8 @@ export class AccountManager {
         if ((error as Error).toString().includes('ArkoseLogin')) {
           await wait(30 * 1000); // Wait 30 seconds before trying another account
         }
+      } finally {
+        i++;
       }
     }
   });
@@ -316,7 +299,7 @@ export class AccountManager {
       input: string | URL | Request,
       init?: RequestInit,
     ): Promise<Response> {
-      if (!self.loggedIn) {
+      if (!self.isLoggedIn()) {
         console.debug("Tried to request but wasn't logged in");
         await self.logIn();
       }
@@ -325,9 +308,9 @@ export class AccountManager {
       {
         headers.set(
           'cookie',
-          self.cookieJar.getCookieStringSync(input.toString()),
+          self.cookieJar.getCookieStringSync('https://twitter.com'),
         );
-        const cookies = await self.cookieJar.getCookies(input.toString());
+        const cookies = await self.cookieJar.getCookies('https://twitter.com');
         const xCsrfToken = cookies.find((cookie) => cookie.key === 'ct0');
         if (xCsrfToken) {
           headers.set('x-csrf-token', xCsrfToken.value);
@@ -345,19 +328,20 @@ export class AccountManager {
 
       // Handle rate limiting
       if (response.status === 429) {
-        self.cookieJar = new CookieJar();
-        self.loggedIn = false;
-        self.currentUsername = null;
         console.warn(`Rate limited, retrying with another account`);
+        const ratelimitUntil = new Date(
+          parseInt(response.headers.get('x-rate-limit-reset') || '0') * 1000,
+        );
+        self.currentAccount!.rateLimitedUntil = ratelimitUntil.getTime();
+        self.db.write();
+        await self.logIn();
         return await fetchWithAuthenticatedAccount(input, init);
       }
 
       // Handle suspended account
       if (response.status === 403) {
-        self.cookieJar = new CookieJar();
-        self.loggedIn = false;
-        self.currentUsername = null;
         console.warn(`403, retrying with another account`);
+        await self.logIn();
         return await fetchWithAuthenticatedAccount(input, init);
       }
 
@@ -370,10 +354,8 @@ export class AccountManager {
           (json as any).errors != null &&
           (json as any).errors.length > 0
         ) {
-          self.cookieJar = new CookieJar();
-          self.loggedIn = false;
-          self.currentUsername = null;
           console.warn(`Error in response, retrying with another account`);
+          await self.logIn();
           return await fetchWithAuthenticatedAccount(input, init);
         }
 
@@ -405,35 +387,37 @@ export class AccountManager {
     const self = this;
     const auth = new TwitterGuestAuth(AccountManager.DEFAULT_BEARER_TOKEN);
 
-    // Create a custom installTo function that matches the interface but handles our logic
-    // @ts-ignore - We need to override the method signature to accept the URL parameter
-    auth.installTo = async function (
-      headers: Headers,
-      url?: string,
-    ): Promise<void> {
-      if (self.hasAccountsAvailable && !self.isLoggedIn()) {
-        await self.logIn();
-      }
+    auth.fetch = this.createAuthenticatedFetch() as any;
 
-      if (self.isLoggedIn()) {
-        const urlString = 'https://twitter.com';
-        headers.set('cookie', self.cookieJar.getCookieStringSync(urlString));
-        const cookies = await self.cookieJar.getCookies(urlString);
-        const xCsrfToken = cookies.find((cookie) => cookie.key === 'ct0');
-        if (xCsrfToken) {
-          headers.set('x-csrf-token', xCsrfToken.value);
-        }
-        headers.set(
-          'authorization',
-          `Bearer ${AccountManager.DEFAULT_BEARER_TOKEN}`,
-        );
-      } else {
-        headers.set(
-          'authorization',
-          `Bearer ${AccountManager.DEFAULT_BEARER_TOKEN}`,
-        );
-      }
-    };
+    // // Create a custom installTo function that matches the interface but handles our logic
+    // // @ts-ignore - We need to override the method signature to accept the URL parameter
+    // auth.installTo = async function (
+    //   headers: Headers,
+    //   url?: string,
+    // ): Promise<void> {
+    //   if (self.hasAccountsAvailable && !self.isLoggedIn()) {
+    //     await self.logIn();
+    //   }
+
+    //   if (self.isLoggedIn()) {
+    //     const urlString = 'https://twitter.com';
+    //     headers.set('cookie', self.cookieJar.getCookieStringSync(urlString));
+    //     const cookies = await self.cookieJar.getCookies(urlString);
+    //     const xCsrfToken = cookies.find((cookie) => cookie.key === 'ct0');
+    //     if (xCsrfToken) {
+    //       headers.set('x-csrf-token', xCsrfToken.value);
+    //     }
+    //     headers.set(
+    //       'authorization',
+    //       `Bearer ${AccountManager.DEFAULT_BEARER_TOKEN}`,
+    //     );
+    //   } else {
+    //     headers.set(
+    //       'authorization',
+    //       `Bearer ${AccountManager.DEFAULT_BEARER_TOKEN}`,
+    //     );
+    //   }
+    // };
 
     return auth;
   }
