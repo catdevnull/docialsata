@@ -119,3 +119,4 @@ docs/
 package-lock.json
 
 accounts-state.json
+tokens.json
