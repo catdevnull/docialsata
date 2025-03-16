@@ -2,21 +2,24 @@
   "extends": "@tsconfig/node16/tsconfig.json",
   "exclude": ["node_modules", "dist", "examples", "**/*.test.ts", "src/test-utils.ts"],
   "compilerOptions": {
-    // TODO: Remove "dom" from this when support for Node 16 is dropped
-    "lib": ["es2021", "dom"],
-    "outDir": "./dist",
-    "rootDir": "./src",
+    // Enable latest features
+    "lib": ["ESNext", "DOM"],
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleDetection": "force",
+    "jsx": "react-jsx",
+    "allowJs": true,
+    // Bundler mode
     "moduleResolution": "bundler",
-    "sourceMap": true,
-    "declaration": true,
-    "declarationMap": true,
-    "declarationDir": "./dist",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "noEmit": true,
     "strict": true,
     "noImplicitAny": true,
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
     "stripInternal": true,
-    "types": ["jest"]
+    "types": ["jest", "@types/bun"]
   }
 }

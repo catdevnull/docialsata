@@ -12,5 +12,7 @@ export const verifyToken = async (c: any, next: any) => {
     return c.json({ error: 'Unauthorized - Invalid token' }, 401);
   }
 
+  c.set('token', token);
+
   await next();
 };
