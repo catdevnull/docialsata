@@ -27,6 +27,7 @@ export default {
   idleTimeout: 255, // seconds
   routes: {
     '/': index,
+    '/playground': index,
   },
   fetch: app.fetch,
 };
