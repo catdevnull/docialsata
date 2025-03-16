@@ -26,9 +26,8 @@
   "author": "karashiiro <49822414+karashiiro@users.noreply.github.com>",
   "license": "MIT",
   "engines": {
-    "node": ">=16"
+    "node": ">=22"
   },
-  "_packageManager": "yarn@1.22.19",
   "scripts": {
     "build": "rimraf dist && rollup -c",
     "commit": "cz",
