@@ -1,9 +1,14 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Link, Route, Routes } from 'react-router';
 import useLocalStorageState from 'use-local-storage-state';
 import { Download } from 'lucide-react';
 import type { Tweet } from '../../tweets';
+import {
+  MantineReactTable,
+  useMantineReactTable,
+  type MRT_ColumnDef, //if using TypeScript (optional, but recommended)
+} from 'mantine-react-table';
 
 const Index = () => (
   <section className="section">
@@ -36,6 +41,13 @@ const Playground = () => (
 
       <div className="box mt-5">
         <h2 className="title is-4 twitter-blue">Tweets and Replies</h2>
+        <p className="subtitle">
+          Tené en cuenta que lamentablemente este endpoint se queda a los ~900
+          tweets - es una limitación de la API interna de Twitter que no podemos
+          superar. En el futuro vamos a armar un endpoint para descargar todos
+          los tweets de un usuario, pero sin incluir retweets (usando la
+          funcionalidad de busqueda).
+        </p>
         <TweetsAndRepliesForm />
       </div>
     </div>
@@ -113,44 +125,65 @@ const TweetsAndRepliesForm = () => {
 
   const [data, setData] = useState<{ tweets: Tweet[] } | null>(null);
 
-  const refetch = useCallback(
-    async (e?: Event) => {
-      e?.preventDefault();
-      setIsLoading(true);
-      setError(null);
-      try {
-        const endpoint = `/api/users/${idOrHandle}/tweets-and-replies${
-          until ? `?until=${until}` : ''
-        }`;
-
-        const response = await fetch(endpoint, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        });
-        const data = await response.json();
-        if (!response.ok) {
-          throw new Error(
-            data.error || 'An error occurred while fetching tweets',
-          );
-        }
-        setData(data);
-      } catch (error) {
-        setError(
-          error instanceof Error
-            ? error.message
-            : 'An error occurred while fetching tweets',
-        );
-      } finally {
-        setIsLoading(false);
-      }
-    },
-    [idOrHandle, until, token],
+  const columns = useMemo(
+    () => [
+      { header: 'Username', accessorKey: 'username' },
+      { header: 'Name', accessorKey: 'name' },
+      { header: 'Text', accessorKey: 'text' },
+    ],
+    [],
   );
+
+  const table = useMantineReactTable({
+    columns,
+    data: data?.tweets || [],
+    enableColumnOrdering: true,
+    enableGlobalFilter: false,
+    initialState: {
+      density: 'xs',
+    },
+  });
+
+  const refetch = useCallback(async () => {
+    if (validationError) return;
+    setIsLoading(true);
+    setError(null);
+    try {
+      const endpoint = `/api/users/${idOrHandle}/tweets-and-replies${
+        until ? `?until=${until}` : ''
+      }`;
+
+      const response = await fetch(endpoint, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(
+          data.error || 'An error occurred while fetching tweets',
+        );
+      }
+      setData(data);
+    } catch (error) {
+      setError(
+        error instanceof Error
+          ? error.message
+          : 'An error occurred while fetching tweets',
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  }, [idOrHandle, until, token]);
 
   return (
     <div>
-      <form onSubmit={refetch}>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          refetch();
+        }}
+      >
         <div className="field">
           <label className="label">User ID or Handle</label>
           <div className="control">
@@ -239,6 +272,8 @@ const TweetsAndRepliesForm = () => {
               <span>Download JSON</span>
             </button>
           </div>
+          <MantineReactTable table={table} />
+
           <div
             className="tweets-container"
             style={{ maxHeight: '500px', overflowY: 'auto' }}
