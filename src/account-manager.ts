@@ -357,15 +357,20 @@ export class AccountManager {
       const clonedResponse = response.clone();
       try {
         const json = await clonedResponse.json();
-        // if (
-        //   'errors' in (json as any) &&
-        //   (json as any).errors != null &&
-        //   (json as any).errors.length > 0
-        // ) {
-        //   console.warn(`Error in response, retrying with another account`);
-        //   await self.logIn();
-        //   return await fetchWithAuthenticatedAccount(input, init);
-        // }
+        if (
+          'errors' in (json as any) &&
+          (json as any).errors != null &&
+          (json as any).errors.length > 0 &&
+          (json as any).errors[0].message.includes(
+            'Authorization: Denied by access control: To protect our users',
+          )
+        ) {
+          console.warn(`Error in response, retrying with another account`);
+          self.currentAccount!.failedLogin = true;
+          self.db.write();
+          await self.logIn();
+          return await fetchWithAuthenticatedAccount(input, init);
+        }
 
         return new Response(JSON.stringify(json), {
           status: response.status,
