@@ -1,16 +1,14 @@
 import { Hono } from 'hono';
 import { accountManager } from '../account-manager.js';
-import { getUserIdByScreenName } from '../profile.js';
+import { getProfile, getUserIdByScreenName } from '../profile.js';
 import { getTweetsAndRepliesByUserId } from '../tweets.js';
 import { verifyToken } from './auth.js';
+import { HTTPException } from 'hono/http-exception';
+import type { TwitterAuth } from '../auth.js';
 
 export const router = new Hono();
 
-router.get('/:id_or_handle/tweets-and-replies', verifyToken, async (c) => {
-  const idOrHandle = c.req.param('id_or_handle');
-  const until = c.req.query('until') ? Number(c.req.query('until')) : 40;
-  const auth = accountManager.createAuthInstance();
-
+async function parseIdOrHandle(idOrHandle: string, auth: TwitterAuth) {
   let id: string;
   if (idOrHandle.startsWith('@')) {
     const handle = idOrHandle.slice(1);
@@ -21,13 +19,38 @@ router.get('/:id_or_handle/tweets-and-replies', verifyToken, async (c) => {
     } catch (error: unknown) {
       console.log(error);
       if ((error as Error).message === 'User not found.') {
-        return c.json({ error: 'User not found', handle }, 404);
+        throw new HTTPException(404, { message: 'User not found' });
       }
-      return c.json({ error: 'Failed to get user ID' }, 500);
+      throw new HTTPException(500, { message: 'Failed to get user ID' });
     }
   } else {
+    if (!/^[0-9]+$/.test(idOrHandle)) {
+      throw new HTTPException(400, {
+        message:
+          'Invalid user ID - if you are using a handle, it must start with @',
+      });
+    }
     id = idOrHandle;
   }
+
+  return id;
+}
+
+router.get('/:handle', verifyToken, async (c) => {
+  const handle = c.req.param('handle').slice(1);
+  const auth = accountManager.createAuthInstance();
+
+  const res = await getProfile(handle, auth);
+  if (!res.success) throw res.err;
+
+  return c.json({ profile: res.value });
+});
+
+router.get('/:id_or_handle/tweets-and-replies', verifyToken, async (c) => {
+  const idOrHandle = c.req.param('id_or_handle');
+  const until = c.req.query('until') ? Number(c.req.query('until')) : 40;
+  const auth = accountManager.createAuthInstance();
+  const id = await parseIdOrHandle(idOrHandle, auth);
 
   const res = getTweetsAndRepliesByUserId(id, until, auth);
   let tweets = [];

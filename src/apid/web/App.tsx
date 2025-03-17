@@ -40,6 +40,14 @@ const Playground = () => (
       <TokenInput />
 
       <div className="box mt-5">
+        <h2 className="title is-4 twitter-blue">User Profile</h2>
+        <p className="subtitle">
+          Get a user's profile information using their handle or ID.
+        </p>
+        <ProfileForm />
+      </div>
+
+      <div className="box mt-5">
         <h2 className="title is-4 twitter-blue">Tweets and Replies</h2>
         <p className="subtitle">
           Tené en cuenta que lamentablemente este endpoint se queda a los ~900
@@ -53,8 +61,6 @@ const Playground = () => (
     </div>
   </section>
 );
-
-
 
 const TweetsAndRepliesForm = () => {
   const [token] = useToken();
@@ -233,6 +239,134 @@ const TweetsAndRepliesForm = () => {
                 </pre>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const ProfileForm = () => {
+  const [token] = useToken();
+  const [handle, setIdOrHandle] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const validationError = !handle ? 'Please enter a user ID or handle' : null;
+
+  const [data, setData] = useState<{ profile: any } | null>(null);
+
+  const refetch = useCallback(async () => {
+    if (validationError) return;
+    setIsLoading(true);
+    setError(null);
+    try {
+      const endpoint = `/api/users/${handle}`;
+
+      const response = await fetch(endpoint, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(
+          data.error || 'An error occurred while fetching profile',
+        );
+      }
+      setData(data);
+    } catch (error) {
+      setError(
+        error instanceof Error
+          ? error.message
+          : 'An error occurred while fetching profile',
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  }, [handle, token]);
+
+  return (
+    <div>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          refetch();
+        }}
+      >
+        <div className="field">
+          <label className="label">Handle</label>
+          <div className="control">
+            <input
+              className="input"
+              type="text"
+              placeholder="Enter username"
+              value={handle}
+              disabled={isLoading}
+              onChange={(e) => setIdOrHandle(e.target.value)}
+            />
+            <p className="help">
+              For username, you can prefix with @ (e.g. @username). No IDs
+              allowed for now.
+            </p>
+          </div>
+        </div>
+
+        <div className="field">
+          <div className="control">
+            <button
+              className={`button is-primary ${isLoading ? 'is-loading' : ''}`}
+              type="submit"
+            >
+              Fetch User Profile
+            </button>
+          </div>
+        </div>
+      </form>
+
+      {validationError && (
+        <div className="notification is-danger mt-4">{validationError}</div>
+      )}
+
+      {error && (
+        <div className="notification is-danger mt-4">
+          <button className="delete" onClick={() => refetch()}></button>
+          {error}
+        </div>
+      )}
+
+      {data && (
+        <div className="mt-4">
+          <div className="is-flex is-justify-content-space-between is-align-items-center mb-3">
+            <h3 className="title is-5 mb-0">Profile Result</h3>
+            <button
+              className="button is-small is-info"
+              onClick={() => {
+                const dataStr = JSON.stringify(data.profile, null, 2);
+                const dataUri = `data:application/json;charset=utf-8,${encodeURIComponent(
+                  dataStr,
+                )}`;
+                const fileName = `profile-${handle.replace(
+                  '@',
+                  '',
+                )}-${new Date().toISOString().slice(0, 19)}.json`;
+
+                const linkElement = document.createElement('a');
+                linkElement.setAttribute('href', dataUri);
+                linkElement.setAttribute('download', fileName);
+                linkElement.click();
+              }}
+            >
+              <span className="icon is-small mr-1">
+                <Download size={16} />
+              </span>
+              <span>Download JSON</span>
+            </button>
+          </div>
+          <div className="box mb-3">
+            <pre style={{ whiteSpace: 'pre-wrap' }}>
+              {JSON.stringify(data.profile, null, 2)}
+            </pre>
           </div>
         </div>
       )}
