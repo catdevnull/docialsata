@@ -86,19 +86,12 @@ export function parseAccountList(
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // Debounce function implementation for login
-function pDebounce<T extends (...args: any[]) => Promise<any>>(
-  fn: T,
-  wait: number = 0,
-) {
+function pDebounce<T extends (...args: any[]) => Promise<any>>(fn: T) {
   let pending: Promise<any> | null = null;
   const debounced = ((...args: Parameters<T>) => {
     if (!pending) {
       pending = fn(...args).finally(() => {
-        const timeout = setTimeout(() => {
-          pending = null;
-        }, wait);
-        // Ensure the timeout is cleared if the process exits
-        if (timeout.unref) timeout.unref();
+        pending = null;
       });
     }
     return pending;
@@ -362,11 +355,12 @@ export class AccountManager {
           (json as any).errors != null &&
           (json as any).errors.length > 0 &&
           (json as any).errors[0].message.includes(
-            'Authorization: Denied by access control: To protect our users',
+            'Authorization: Denied by access control',
           )
         ) {
           console.warn(`Error in response, retrying with another account`);
-          self.currentAccount!.failedLogin = true;
+          // TODO: revisar que es lo correcto en estas situaciones
+          self.currentAccount!.tokenState = 'failed';
           self.db.write();
           await self.logIn();
           return await fetchWithAuthenticatedAccount(input, init);
