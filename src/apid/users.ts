@@ -40,10 +40,18 @@ router.get('/:handle', verifyToken, async (c) => {
   const handle = c.req.param('handle').slice(1);
   const auth = accountManager.createAuthInstance();
 
-  const res = await getProfile(handle, auth);
-  if (!res.success) throw res.err;
+  try {
+    const res = await getProfile(handle, auth);
+    if (!res.success) throw res.err;
 
-  return c.json({ profile: res.value });
+    return c.json({ profile: res.value });
+  } catch (error: unknown) {
+    if ((error as Error).message === 'User not found.') {
+      throw new HTTPException(404, { message: 'User not found' });
+    }
+    console.log(error);
+    throw new HTTPException(500, { message: 'Failed to get user profile' });
+  }
 });
 
 router.get('/:id_or_handle/tweets-and-replies', verifyToken, async (c) => {
