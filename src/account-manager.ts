@@ -187,7 +187,7 @@ export class AccountManager {
         (a) =>
           !a.failedLogin &&
           a.username !== this.currentAccount?.username &&
-          (!a.rateLimitedUntil || a.rateLimitedUntil < Date.now()),
+          (a.rateLimitedUntil ? a.rateLimitedUntil < Date.now() : true),
       )
       .sort((a, b) =>
         a.tokenState === 'working'
@@ -196,6 +196,7 @@ export class AccountManager {
           ? 1
           : Math.random() - 0.5,
       );
+    console.debug({ loggingableAccounts });
     if (!loggingableAccounts.length) {
       throw new Error('No accounts available for login');
     }
@@ -208,6 +209,10 @@ export class AccountManager {
     while (!this.isLoggedIn()) {
       let account: AccountState;
       account = loggingableAccounts[i];
+      console.debug('Trying', account);
+      if (!account) {
+        throw new Error('No accounts available for login');
+      }
 
       try {
         const scraper = new Scraper();
