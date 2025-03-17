@@ -361,29 +361,24 @@ router.get('/accounts', verifyAdmin, (c) => {
                 <div class="box">
                   <h2 class="title is-4 twitter-blue">Import Accounts</h2>
                   <form action="/admin/accounts/import-bulk" method="post">
-                    <div class="field">
-                      <label class="label" for="format">Format:</label>
+                    <div class="field" id="customFormatField">
+                      <label class="label" for="customFormat"
+                        >Custom Format:</label
+                      >
                       <div class="control">
-                        <div class="select is-fullwidth">
-                          <select name="format" id="format">
-                            <option
-                              value="${defaultAccountListFormat}"
-                              selected
-                            >
-                              ${defaultAccountListFormat}
-                            </option>
-                            <option
-                              value="username:password:email:emailPassword:authToken:ANY"
-                            >
-                              username:password:email:emailPassword:authToken:ANY
-                            </option>
-                            <option
-                              value="username:password:email:emailPassword:ANY:ANY"
-                            >
-                              username:password:email:emailPassword:ANY:ANY
-                            </option>
-                          </select>
-                        </div>
+                        <input
+                          class="input"
+                          type="text"
+                          id="format"
+                          name="format"
+                          placeholder="username:password:email:..."
+                          value="username:password:email:emailPassword:authToken:twoFactorSecret"
+                        />
+                        <p class="help">
+                          Use field names: username, password, email,
+                          emailPassword, authToken, twoFactorSecret. Use ANY for
+                          fields to ignore.
+                        </p>
                       </div>
                     </div>
                     <div class="field">
