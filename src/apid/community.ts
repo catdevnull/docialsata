@@ -4,6 +4,7 @@ import { requestApi } from '../api.js';
 import { ApiError } from '../errors.js';
 import { Hono } from 'hono';
 import { accountManager } from '../account-manager.js';
+import { verifyToken } from './auth.js';
 
 export const router = new Hono();
 
@@ -50,7 +51,7 @@ const CommunityMembersSliceTimelineResponse = z.object({
     }),
   }),
 });
-router.get('/:id/members', async (c) => {
+router.get('/:id/members', verifyToken, async (c) => {
   let until: number = 20;
   const untilStr = c.req.query('until');
   if (untilStr) {
