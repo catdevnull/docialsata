@@ -196,7 +196,6 @@ export class AccountManager {
           ? 1
           : Math.random() - 0.5,
       );
-    console.debug({ loggingableAccounts });
     if (!loggingableAccounts.length) {
       throw new Error('No accounts available for login');
     }
@@ -222,6 +221,8 @@ export class AccountManager {
           await scraper.loginWithToken(account.authToken);
           if (await scraper.isLoggedIn()) {
             this.currentAccount = account;
+          } else {
+            throw new Error('Failed to log in with authToken');
           }
         } catch (error) {
           if (account.username && account.password) {
@@ -245,6 +246,8 @@ export class AccountManager {
           );
           if (await scraper.isLoggedIn()) {
             this.currentAccount = account;
+          } else {
+            throw new Error('Failed to log in with username/password');
           }
         }
 
