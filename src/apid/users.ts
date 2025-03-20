@@ -5,6 +5,7 @@ import { getTweetsAndRepliesByUserId } from '../tweets.js';
 import { verifyToken } from './auth.js';
 import { HTTPException } from 'hono/http-exception';
 import type { TwitterAuth } from '../auth.js';
+import { getFollowers, getFollowing } from '../relationships.js';
 
 export const router = new Hono();
 
@@ -67,4 +68,34 @@ router.get('/:id_or_handle/tweets-and-replies', verifyToken, async (c) => {
   }
 
   return c.json({ tweets });
+});
+
+router.get('/:id_or_handle/following', verifyToken, async (c) => {
+  const idOrHandle = c.req.param('id_or_handle');
+  const until = c.req.query('until') ? Number(c.req.query('until')) : 40;
+  const auth = accountManager.createAuthInstance();
+  const id = await parseIdOrHandle(idOrHandle, auth);
+
+  const res = getFollowing(id, until, auth);
+  let profiles = [];
+  for await (const profile of res) {
+    profiles.push(profile);
+  }
+
+  return c.json({ profiles });
+});
+
+router.get('/:id_or_handle/followers', verifyToken, async (c) => {
+  const idOrHandle = c.req.param('id_or_handle');
+  const until = c.req.query('until') ? Number(c.req.query('until')) : 40;
+  const auth = accountManager.createAuthInstance();
+  const id = await parseIdOrHandle(idOrHandle, auth);
+
+  const res = getFollowers(id, until, auth);
+  let profiles = [];
+  for await (const profile of res) {
+    profiles.push(profile);
+  }
+
+  return c.json({ profiles });
 });

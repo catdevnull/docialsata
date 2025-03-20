@@ -4,6 +4,7 @@ import { BrowserRouter, Link, Route, Routes } from 'react-router';
 import TokenInput, { useToken } from './TokenInput';
 import { Download } from 'lucide-react';
 import type { Tweet } from '../../tweets';
+import type { Profile } from '../../profile';
 import {
   MantineReactTable,
   useMantineReactTable,
@@ -57,6 +58,22 @@ const Playground = () => (
           funcionalidad de busqueda).
         </p>
         <TweetsAndRepliesForm />
+      </div>
+
+      <div className="box mt-5">
+        <h2 className="title is-4 twitter-blue">Following</h2>
+        <p className="subtitle">
+          Get a list of users that this account follows.
+        </p>
+        <FollowingForm />
+      </div>
+
+      <div className="box mt-5">
+        <h2 className="title is-4 twitter-blue">Followers</h2>
+        <p className="subtitle">
+          Get a list of users that follow this account.
+        </p>
+        <FollowersForm />
       </div>
     </div>
   </section>
@@ -239,6 +256,306 @@ const TweetsAndRepliesForm = () => {
                 </pre>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const FollowingForm = () => {
+  const [token] = useToken();
+  const [idOrHandle, setIdOrHandle] = useState('');
+  const [until, setUntil] = useState('40');
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const validationError = !idOrHandle
+    ? 'Please enter a user ID or handle'
+    : !idOrHandle.startsWith('@') && !/\d+$/.test(idOrHandle)
+    ? 'Please enter a valid handle'
+    : !until
+    ? 'Please enter a number of profiles'
+    : null;
+
+  const [data, setData] = useState<{ profiles: Profile[] } | null>(null);
+
+  const columns = useMemo(
+    () => [
+      { header: 'Username', accessorKey: 'username' },
+      { header: 'Name', accessorKey: 'name' },
+      { header: 'Description', accessorKey: 'description' },
+    ],
+    [],
+  );
+
+  const table = useMantineReactTable({
+    columns,
+    data: data?.profiles || [],
+    enableColumnOrdering: true,
+    enableGlobalFilter: false,
+    initialState: {
+      density: 'xs',
+    },
+  });
+
+  const refetch = useCallback(async () => {
+    if (validationError) return;
+    setIsLoading(true);
+    setError(null);
+    try {
+      const endpoint = `/api/users/${idOrHandle}/following${
+        until ? `?until=${until}` : ''
+      }`;
+
+      const response = await fetch(endpoint, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(
+          data.error || 'An error occurred while fetching following',
+        );
+      }
+      setData(data);
+    } catch (error) {
+      setError(
+        error instanceof Error
+          ? error.message
+          : 'An error occurred while fetching following',
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  }, [idOrHandle, until, token]);
+
+  return (
+    <div>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          refetch();
+        }}
+      >
+        <div className="field">
+          <label className="label">User ID or Handle</label>
+          <div className="control">
+            <input
+              className="input"
+              type="text"
+              placeholder="Enter @username or user ID"
+              value={idOrHandle}
+              disabled={isLoading}
+              onChange={(e) => setIdOrHandle(e.target.value)}
+            />
+            <p className="help">
+              For username, you can prefix with @ (e.g. @username). For IDs, use
+              the numeric ID.
+            </p>
+          </div>
+        </div>
+
+        <div className="field">
+          <label className="label">Until</label>
+          <div className="control">
+            <input
+              className="input"
+              type="number"
+              placeholder="Number of profiles (default: 40)"
+              value={until}
+              disabled={isLoading}
+              onChange={(e) => setUntil(e.target.value)}
+            />
+            <p className="help">
+              Maximum number of profiles to fetch. Default is 40.
+            </p>
+          </div>
+        </div>
+
+        <div className="field">
+          <div className="control">
+            <button
+              className={`button is-primary ${isLoading ? 'is-loading' : ''}`}
+              type="submit"
+            >
+              Fetch Following
+            </button>
+          </div>
+        </div>
+      </form>
+
+      {validationError && (
+        <div className="notification is-danger mt-4">{validationError}</div>
+      )}
+
+      {error && (
+        <div className="notification is-danger mt-4">
+          <button className="delete" onClick={() => refetch()}></button>
+          {error}
+        </div>
+      )}
+
+      {data && (
+        <div className="mt-4">
+          <div className="is-flex is-justify-content-space-between is-align-items-center mb-3">
+            <span className="tag is-info is-medium">
+              {data.profiles.length} profiles found
+            </span>
+          </div>
+          <div className="table-container">
+            <MantineReactTable table={table} />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const FollowersForm = () => {
+  const [token] = useToken();
+  const [idOrHandle, setIdOrHandle] = useState('');
+  const [until, setUntil] = useState('40');
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const validationError = !idOrHandle
+    ? 'Please enter a user ID or handle'
+    : !idOrHandle.startsWith('@') && !/\d+$/.test(idOrHandle)
+    ? 'Please enter a valid handle'
+    : !until
+    ? 'Please enter a number of profiles'
+    : null;
+
+  const [data, setData] = useState<{ profiles: Profile[] } | null>(null);
+
+  const columns = useMemo(
+    () => [
+      { header: 'Username', accessorKey: 'username' },
+      { header: 'Name', accessorKey: 'name' },
+      { header: 'Description', accessorKey: 'description' },
+    ],
+    [],
+  );
+
+  const table = useMantineReactTable({
+    columns,
+    data: data?.profiles || [],
+    enableColumnOrdering: true,
+    enableGlobalFilter: false,
+    initialState: {
+      density: 'xs',
+    },
+  });
+
+  const refetch = useCallback(async () => {
+    if (validationError) return;
+    setIsLoading(true);
+    setError(null);
+    try {
+      const endpoint = `/api/users/${idOrHandle}/followers${
+        until ? `?until=${until}` : ''
+      }`;
+
+      const response = await fetch(endpoint, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(
+          data.error || 'An error occurred while fetching followers',
+        );
+      }
+      setData(data);
+    } catch (error) {
+      setError(
+        error instanceof Error
+          ? error.message
+          : 'An error occurred while fetching followers',
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  }, [idOrHandle, until, token]);
+
+  return (
+    <div>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          refetch();
+        }}
+      >
+        <div className="field">
+          <label className="label">User ID or Handle</label>
+          <div className="control">
+            <input
+              className="input"
+              type="text"
+              placeholder="Enter @username or user ID"
+              value={idOrHandle}
+              disabled={isLoading}
+              onChange={(e) => setIdOrHandle(e.target.value)}
+            />
+            <p className="help">
+              For username, you can prefix with @ (e.g. @username). For IDs, use
+              the numeric ID.
+            </p>
+          </div>
+        </div>
+
+        <div className="field">
+          <label className="label">Until</label>
+          <div className="control">
+            <input
+              className="input"
+              type="number"
+              placeholder="Number of profiles (default: 40)"
+              value={until}
+              disabled={isLoading}
+              onChange={(e) => setUntil(e.target.value)}
+            />
+            <p className="help">
+              Maximum number of profiles to fetch. Default is 40.
+            </p>
+          </div>
+        </div>
+
+        <div className="field">
+          <div className="control">
+            <button
+              className={`button is-primary ${isLoading ? 'is-loading' : ''}`}
+              type="submit"
+            >
+              Fetch Followers
+            </button>
+          </div>
+        </div>
+      </form>
+
+      {validationError && (
+        <div className="notification is-danger mt-4">{validationError}</div>
+      )}
+
+      {error && (
+        <div className="notification is-danger mt-4">
+          <button className="delete" onClick={() => refetch()}></button>
+          {error}
+        </div>
+      )}
+
+      {data && (
+        <div className="mt-4">
+          <div className="is-flex is-justify-content-space-between is-align-items-center mb-3">
+            <span className="tag is-info is-medium">
+              {data.profiles.length} profiles found
+            </span>
+          </div>
+          <div className="table-container">
+            <MantineReactTable table={table} />
           </div>
         </div>
       )}
