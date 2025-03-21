@@ -6,6 +6,7 @@ import { router as accountsRouter } from './account.js';
 import { router as tweetsRouter } from './tweets.js';
 import { router as usersRouter } from './users.js';
 import { router as adminRouter } from './admin.js';
+import { router as searchRouter } from './search.js';
 import index from './web/index.html';
 
 declare global {
@@ -21,6 +22,7 @@ app.route('/api/tokens', tokensRouter);
 app.route('/api/accounts', accountsRouter);
 app.route('/api/tweets', tweetsRouter);
 app.route('/api/users', usersRouter);
+app.route('/api/search', searchRouter);
 
 // https://github.com/orgs/honojs/discussions/3722
 export default {

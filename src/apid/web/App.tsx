@@ -2,7 +2,25 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Link, Route, Routes } from 'react-router';
 import TokenInput, { useToken } from './TokenInput';
-import { Download } from 'lucide-react';
+import { Download, Search } from 'lucide-react';
+
+interface TweetPhoto {
+  id: string;
+  url: string;
+}
+
+interface SearchTweet {
+  id: string;
+  username: string;
+  name: string;
+  text: string;
+  timeParsed: string;
+  likes: number;
+  retweets: number;
+  replies: number;
+  views?: number;
+  photos?: TweetPhoto[];
+}
 import type { Tweet } from '../../tweets';
 import type { Profile } from '../../profile';
 import {
@@ -32,6 +50,235 @@ const Index = () => (
   </section>
 );
 
+const SearchPeopleForm = () => {
+  const [token] = useToken();
+  const [query, setQuery] = useState('');
+  const [until, setUntil] = useState('20');
+  const [isLoading, setIsLoading] = useState(false);
+  const [profiles, setProfiles] = useState<any[]>([]);
+
+  const search = useCallback(async () => {
+    if (!query.trim()) return;
+    setIsLoading(true);
+    try {
+      const res = await fetch(`/api/search/people/${encodeURIComponent(query)}?until=${until}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      setProfiles(data.profiles);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [query, until, token]);
+
+  return (
+    <div>
+      <form onSubmit={(e) => { e.preventDefault(); search(); }}>
+        <div className="field">
+          <label className="label">Search Query</label>
+          <div className="control">
+            <input
+              className="input"
+              type="text"
+              placeholder="Enter search query"
+              value={query}
+              disabled={isLoading}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+          </div>
+        </div>
+
+        <div className="field">
+          <label className="label">Number of Results</label>
+          <div className="control">
+            <input
+              className="input"
+              type="number"
+              value={until}
+              disabled={isLoading}
+              onChange={(e) => setUntil(e.target.value)}
+            />
+          </div>
+        </div>
+
+        <div className="field">
+          <div className="control">
+            <button
+              className={`button is-info ${isLoading ? 'is-loading' : ''}`}
+              disabled={!query.trim() || isLoading}
+            >
+              <span className="icon">
+                <Search />
+              </span>
+              <span>Search</span>
+            </button>
+          </div>
+        </div>
+      </form>
+
+      {profiles.length > 0 && (
+        <div className="mt-4">
+          <h3 className="title is-5">Results ({profiles.length})</h3>
+          <div className="table-container">
+            <table className="table is-fullwidth">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Username</th>
+                  <th>Description</th>
+                  <th>Followers</th>
+                  <th>Following</th>
+                </tr>
+              </thead>
+              <tbody>
+                {profiles.map((profile) => (
+                  <tr key={profile.id}>
+                    <td>{profile.name}</td>
+                    <td>@{profile.username}</td>
+                    <td>{profile.description}</td>
+                    <td>{profile.followersCount}</td>
+                    <td>{profile.followingCount}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const SearchTweetsForm = () => {
+  const [token] = useToken();
+  const [query, setQuery] = useState('');
+  const [until, setUntil] = useState('20');
+  const [isLoading, setIsLoading] = useState(false);
+  const [tweets, setTweets] = useState<SearchTweet[]>([]);
+
+  const search = useCallback(async () => {
+    if (!query.trim()) return;
+    setIsLoading(true);
+    try {
+      const res = await fetch(`/api/search/tweets/${encodeURIComponent(query)}?until=${until}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      setTweets(data.tweets);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [query, until, token]);
+
+  return (
+    <div>
+      <form onSubmit={(e) => { e.preventDefault(); search(); }}>
+        <div className="field">
+          <label className="label">Search Query</label>
+          <div className="control">
+            <input
+              className="input"
+              type="text"
+              placeholder="Enter search query"
+              value={query}
+              disabled={isLoading}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+          </div>
+        </div>
+
+        <div className="field">
+          <label className="label">Number of Results</label>
+          <div className="control">
+            <input
+              className="input"
+              type="number"
+              value={until}
+              disabled={isLoading}
+              onChange={(e) => setUntil(e.target.value)}
+            />
+          </div>
+        </div>
+
+        <div className="field">
+          <div className="control">
+            <button
+              className={`button is-info ${isLoading ? 'is-loading' : ''}`}
+              disabled={!query.trim() || isLoading}
+            >
+              <span className="icon">
+                <Search />
+              </span>
+              <span>Search</span>
+            </button>
+          </div>
+        </div>
+      </form>
+
+      {tweets.length > 0 && (
+        <div className="mt-4">
+          <h3 className="title is-5">Results ({tweets.length})</h3>
+          <div className="table-container">
+            <table className="table is-fullwidth">
+              <thead>
+                <tr>
+                  <th>Author</th>
+                  <th>Content</th>
+                  <th>Date</th>
+                  <th>Stats</th>
+                </tr>
+              </thead>
+              <tbody>
+                {tweets.map((tweet) => (
+                  <tr key={tweet.id}>
+                    <td>
+                      <div>@{tweet.username}</div>
+                      <div className="has-text-grey">{tweet.name}</div>
+                    </td>
+                    <td>
+                      <div className="content">
+                        <div>{tweet.text}</div>
+                        {tweet.photos && tweet.photos.length > 0 && (
+                          <div className="mt-2" style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                            {tweet.photos.map((photo) => (
+                              <img 
+                                key={photo.id} 
+                                src={photo.url} 
+                                alt="" 
+                                style={{ 
+                                  maxWidth: '200px', 
+                                  maxHeight: '200px',
+                                  objectFit: 'cover',
+                                  borderRadius: '8px'
+                                }}
+                              />
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </td>
+                    <td>{new Date(tweet.timeParsed).toLocaleString()}</td>
+                    <td>
+                      <div>❤️ {tweet.likes}</div>
+                      <div>🔄 {tweet.retweets}</div>
+                      <div>💬 {tweet.replies}</div>
+                      {tweet.views && <div>👁️ {tweet.views}</div>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const Playground = () => (
   <section className="section">
     <div className="container">
@@ -39,6 +286,22 @@ const Playground = () => (
       <p className="subtitle">Welcome to the Playground.</p>
 
       <TokenInput />
+
+      <div className="box mt-5">
+        <h2 className="title is-4 twitter-blue">Search People</h2>
+        <p className="subtitle">
+          Search for Twitter users based on a query.
+        </p>
+        <SearchPeopleForm />
+      </div>
+
+      <div className="box mt-5">
+        <h2 className="title is-4 twitter-blue">Search Tweets</h2>
+        <p className="subtitle">
+          Search for tweets based on a query.
+        </p>
+        <SearchTweetsForm />
+      </div>
 
       <div className="box mt-5">
         <h2 className="title is-4 twitter-blue">User Profile</h2>
