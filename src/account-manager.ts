@@ -317,7 +317,11 @@ export class AccountManager {
         }
       }
 
-      const response = await fetch(input, { ...init, headers });
+      const response = await fetch(input, {
+        ...init,
+        headers,
+        proxy: process.env.PROXY_URI,
+      });
       {
         const cookieHeader = response.headers.get('set-cookie');
         if (cookieHeader) {
