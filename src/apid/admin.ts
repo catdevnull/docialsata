@@ -7,6 +7,7 @@ import {
   defaultAccountListFormat,
   parseAccountList,
 } from '../account-manager';
+import { resetFailedLogins } from './account';
 
 export const router = new Hono();
 
@@ -482,6 +483,9 @@ router.get('/accounts', verifyAdmin, (c) => {
                 </div>
               </div>
             </div>
+            <form action="/admin/reset-failed-logins" method="post">
+              <input type="submit" value="Reset All Failed Logins" />
+            </form>
           </div>
         </section>
       </body>
@@ -539,6 +543,18 @@ router.post('/accounts/delete/:username', verifyAdmin, async (c) => {
     console.error('Error deleting account:', error);
     return c.redirect(
       '/admin/accounts?error=' + encodeURIComponent((error as Error).message),
+    );
+  }
+});
+
+router.post('/reset-failed-logins', verifyAdmin, async (c) => {
+  try {
+    accountManager.resetFailedLogins();
+    return c.redirect('/admin/accounts?success=Failed_logins_reset', 302);
+  } catch (error) {
+    return c.redirect(
+      '/admin/accounts?error=Failed_to_reset_failed_logins',
+      302,
     );
   }
 });

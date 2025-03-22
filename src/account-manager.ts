@@ -431,6 +431,13 @@ export class AccountManager {
 
     return auth;
   }
+
+  public resetFailedLogins(): void {
+    this.db.data.accounts.forEach((account) => {
+      account.failedLogin = false;
+    });
+    this.db.write();
+  }
 }
 
 export const accountManager = new AccountManager([], {
