@@ -1,7 +1,6 @@
 import { CookieJar, Cookie } from 'tough-cookie';
 import { Scraper } from './scraper.js';
 import { type TwitterAuth, TwitterGuestAuth } from './auth.js';
-import { Headers } from 'headers-polyfill';
 import path, { join } from 'path';
 import { JSONFileSyncPreset } from 'lowdb/node';
 
