@@ -3,6 +3,9 @@ import { Scraper } from './scraper.js';
 import { type TwitterAuth, TwitterGuestAuth } from './auth.js';
 import path, { join } from 'path';
 import { JSONFileSyncPreset } from 'lowdb/node';
+import { trace, SpanStatusCode, trace } from '@opentelemetry/api';
+import { logger } from './apid/tracing.js';
+import { logs, SeverityNumber } from '@opentelemetry/api-logs';
 
 export type AccountInfo = {
   username: string;
@@ -99,6 +102,60 @@ function pDebounce<T extends (...args: any[]) => Promise<any>>(fn: T) {
   return debounced;
 }
 
+async function telemetryFetch(
+  input: string | URL | Request,
+  init?: RequestInit,
+): Promise<Response> {
+  const tracer = trace.getTracer('fetch-tracer');
+
+  return tracer.startActiveSpan(
+    `fetch ${init?.method || 'GET'} ${
+      typeof input === 'string'
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : input.url
+    }`,
+    async (span) => {
+      try {
+        // Add request details to span
+        span.setAttribute(
+          'http.url',
+          typeof input === 'string'
+            ? input
+            : input instanceof URL
+            ? input.toString()
+            : input.url,
+        );
+        span.setAttribute('http.method', init?.method || 'GET');
+
+        // Perform the fetch
+        const response = await fetch(input, init);
+
+        // Add response details to span
+        span.setAttribute('http.status_code', response.status);
+        span.setAttribute('http.status_text', response.statusText);
+
+        span.setStatus({
+          code: response.ok ? SpanStatusCode.OK : SpanStatusCode.ERROR,
+        });
+
+        return response;
+      } catch (error) {
+        // Record error in span
+        span.setStatus({
+          code: SpanStatusCode.ERROR,
+          message: error instanceof Error ? error.message : String(error),
+        });
+        span.recordException(error as Error);
+        throw error;
+      } finally {
+        span.end();
+      }
+    },
+  );
+}
+
 /**
  * Account manager for Twitter scraping
  * Handles account rotation, authentication, and cookie management
@@ -174,6 +231,8 @@ export class AccountManager {
    * Tries to log in with a random account, rotating through accounts on failure
    */
   logIn = pDebounce(async () => {
+    const logger = logs.getLogger('docial', '0.0.0');
+
     const loggingableAccounts = this.db.data.accounts
       .filter(
         (a) =>
@@ -206,7 +265,9 @@ export class AccountManager {
       }
 
       try {
-        const scraper = new Scraper();
+        const scraper = new Scraper({
+          fetch: telemetryFetch,
+        });
 
         try {
           if (!account.authToken) throw new Error('No auth token available');
@@ -244,10 +305,16 @@ export class AccountManager {
         }
 
         if (this.isLoggedIn()) {
-          console.debug(`Logged into @${account.username}`);
+          logger.emit({
+            severityNumber: SeverityNumber.DEBUG,
+            body: `Logged into @${account.username}`,
+          });
           const cookies = await scraper.getCookies();
           const authTokenCookie = cookies.find((c) => c.key === 'auth_token');
-          console.debug(`auth_token: ${authTokenCookie?.value}`);
+          logger.emit({
+            severityNumber: SeverityNumber.DEBUG,
+            body: `auth_token: ${authTokenCookie?.value}`,
+          });
 
           // Update account state with working token
           if (authTokenCookie && authTokenCookie.value) {
@@ -317,7 +384,7 @@ export class AccountManager {
         }
       }
 
-      const response = await fetch(input, {
+      const response = await telemetryFetch(input, {
         ...init,
         headers,
         proxy: process.env.PROXY_URI,

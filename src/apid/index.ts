@@ -1,5 +1,4 @@
 import { Hono } from 'hono';
-import { getCookie } from 'hono/cookie';
 import { router as communitiesRouter } from './community.js';
 import { router as tokensRouter } from './token.js';
 import { router as accountsRouter } from './account.js';
@@ -8,13 +7,15 @@ import { router as usersRouter } from './users.js';
 import { router as adminRouter } from './admin.js';
 import { router as searchRouter } from './search.js';
 import index from './web/index.html';
+import { opentelemetryMiddleware } from './tracing.js';
 
 declare global {
   var PLATFORM_NODE: boolean;
 }
 globalThis.PLATFORM_NODE = true;
 
-const app = new Hono();
+const app = new Hono({});
+app.use(opentelemetryMiddleware());
 
 app.route('/admin', adminRouter);
 app.route('/api/communities', communitiesRouter);
