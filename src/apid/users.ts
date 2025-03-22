@@ -6,8 +6,22 @@ import { verifyToken } from './auth.js';
 import { HTTPException } from 'hono/http-exception';
 import type { TwitterAuth } from '../auth.js';
 import { getFollowers, getFollowing } from '../relationships.js';
+import type { ContentfulStatusCode } from 'hono/utils/http-status';
 
 export const router = new Hono();
+
+class HTTPJsonException extends HTTPException {
+  constructor(status: ContentfulStatusCode, message: string) {
+    super(status, { message });
+  }
+
+  getResponse() {
+    return new Response(JSON.stringify({ error: this.message }), {
+      status: this.status,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+}
 
 async function parseIdOrHandle(idOrHandle: string, auth: TwitterAuth) {
   let id: string;
@@ -20,16 +34,16 @@ async function parseIdOrHandle(idOrHandle: string, auth: TwitterAuth) {
     } catch (error: unknown) {
       console.log(error);
       if ((error as Error).message === 'User not found.') {
-        throw new HTTPException(404, { message: 'User not found' });
+        throw new HTTPJsonException(404, 'User not found');
       }
-      throw new HTTPException(500, { message: 'Failed to get user ID' });
+      throw new HTTPJsonException(500, 'Failed to get user ID');
     }
   } else {
     if (!/^[0-9]+$/.test(idOrHandle)) {
-      throw new HTTPException(400, {
-        message:
-          'Invalid user ID - if you are using a handle, it must start with @',
-      });
+      throw new HTTPJsonException(
+        400,
+        'Invalid user ID - if you are using a handle, it must start with @',
+      );
     }
     id = idOrHandle;
   }
@@ -48,10 +62,10 @@ router.get('/:handle', verifyToken, async (c) => {
     return c.json({ profile: res.value });
   } catch (error: unknown) {
     if ((error as Error).message === 'User not found.') {
-      throw new HTTPException(404, { message: 'User not found' });
+      throw new HTTPJsonException(404, 'User not found');
     }
     console.log(error);
-    throw new HTTPException(500, { message: 'Failed to get user profile' });
+    throw new HTTPJsonException(500, 'Failed to get user profile');
   }
 });
 
