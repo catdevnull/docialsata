@@ -43,7 +43,7 @@ const sdk = new NodeSDK({
     // new SimpleSpanProcessor(new ConsoleSpanExporter()),
   ],
   logRecordProcessors: [
-    new SimpleLogRecordProcessor(new ConsoleLogRecordExporter()),
+    // new SimpleLogRecordProcessor(new ConsoleLogRecordExporter()),
     new SimpleLogRecordProcessor(logRecordExporter),
   ],
 

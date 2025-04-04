@@ -63,8 +63,8 @@ export interface ScraperOptions {
  * - Reusing Scraper objects is recommended to minimize the time spent authenticating unnecessarily.
  */
 export class Scraper {
-  private auth!: TwitterAuth;
-  private authTrends!: TwitterAuth;
+  public auth!: TwitterAuth;
+  public authTrends!: TwitterAuth;
   private token: string;
 
   /**

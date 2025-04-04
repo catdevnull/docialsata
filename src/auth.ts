@@ -1,8 +1,7 @@
 import { Cookie, CookieJar, MemoryCookieStore } from 'tough-cookie';
 import { updateCookieJar } from './requests';
-import { Headers } from 'headers-polyfill';
 import fetch from 'cross-fetch';
-import { FetchTransformOptions } from './api';
+import { type FetchTransformOptions } from './api';
 
 export interface TwitterAuthOptions {
   fetch: typeof fetch;
@@ -87,23 +86,20 @@ function withTransform(
   };
 }
 
+export const BEARER_TOKEN =
+  'AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA';
 /**
  * A guest authentication token manager. Automatically handles token refreshes.
  */
 export class TwitterGuestAuth implements TwitterAuth {
-  protected bearerToken: string;
   protected jar: CookieJar;
   protected guestToken?: string;
   protected guestCreatedAt?: Date;
 
   fetch: typeof fetch;
 
-  constructor(
-    bearerToken: string,
-    protected readonly options?: Partial<TwitterAuthOptions>,
-  ) {
+  constructor(protected readonly options?: Partial<TwitterAuthOptions>) {
     this.fetch = withTransform(options?.fetch ?? fetch, options?.transform);
-    this.bearerToken = bearerToken;
     this.jar = new CookieJar();
   }
 
@@ -153,7 +149,7 @@ export class TwitterGuestAuth implements TwitterAuth {
       throw new Error('Authentication token is null or undefined.');
     }
 
-    headers.set('authorization', `Bearer ${this.bearerToken}`);
+    headers.set('authorization', `Bearer ${BEARER_TOKEN}`);
     headers.set('x-guest-token', token);
 
     const cookies = await this.getCookies();
@@ -200,7 +196,7 @@ export class TwitterGuestAuth implements TwitterAuth {
     const guestActivateUrl = 'https://api.twitter.com/1.1/guest/activate.json';
 
     const headers = new Headers({
-      Authorization: `Bearer ${this.bearerToken}`,
+      Authorization: `Bearer ${BEARER_TOKEN}`,
       Cookie: await this.getCookieString(),
     });
 

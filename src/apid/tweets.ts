@@ -13,7 +13,7 @@ router.get('/:id', verifyToken, async (c) => {
   if (accountManager.hasAccountsAvailable) {
     tweet = await getTweet(id, accountManager.createAuthInstance());
   } else {
-    const auth = new TwitterGuestAuth(AccountManager.DEFAULT_BEARER_TOKEN);
+    const auth = new TwitterGuestAuth();
     tweet = await getTweetAnonymous(id, auth);
   }
 

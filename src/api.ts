@@ -1,8 +1,7 @@
-import { TwitterAuth } from './auth';
+import { type TwitterAuth } from './auth';
 import { ApiError } from './errors';
-import { Platform, PlatformExtensions } from './platform';
+import { Platform, type PlatformExtensions } from './platform';
 import { updateCookieJar } from './requests';
-import { Headers } from 'headers-polyfill';
 
 // For some reason using Parameters<typeof fetch> reduces the request transform function to
 // `(url: string) => string` in tests.
@@ -90,6 +89,7 @@ export async function requestApi<T>(
       };
     }
 
+    console.trace('Updating cookie jar', url);
     await updateCookieJar(auth.cookieJar(), res.headers);
 
     if (res.status === 429) {

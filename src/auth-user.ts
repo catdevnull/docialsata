@@ -1,9 +1,12 @@
-import { TwitterAuthOptions, TwitterGuestAuth } from './auth';
-import { requestApi } from './api';
+import {
+  BEARER_TOKEN,
+  type TwitterAuthOptions,
+  TwitterGuestAuth,
+} from './auth';
+import { bearerToken, requestApi } from './api';
 import { CookieJar } from 'tough-cookie';
 import { updateCookieJar } from './requests';
-import { Headers } from 'headers-polyfill';
-import { TwitterApiErrorRaw } from './errors';
+import type { TwitterApiErrorRaw } from './errors';
 import { Type, type Static } from '@sinclair/typebox';
 import { Check } from '@sinclair/typebox/value';
 import * as OTPAuth from 'otpauth';
@@ -53,8 +56,8 @@ type FlowTokenResult = FlowTokenResultSuccess | { status: 'error'; err: Error };
  * A user authentication token manager.
  */
 export class TwitterUserAuth extends TwitterGuestAuth {
-  constructor(bearerToken: string, options?: Partial<TwitterAuthOptions>) {
-    super(bearerToken, options);
+  constructor(options?: Partial<TwitterAuthOptions>) {
+    super(options);
   }
 
   async isLoggedIn(): Promise<boolean> {
@@ -185,7 +188,7 @@ export class TwitterUserAuth extends TwitterGuestAuth {
   }
 
   async installTo(headers: Headers): Promise<void> {
-    headers.set('authorization', `Bearer ${this.bearerToken}`);
+    headers.set('authorization', `Bearer ${bearerToken}`);
     headers.set('cookie', await this.getCookieString());
     await this.installCsrfToken(headers);
   }
@@ -373,7 +376,7 @@ export class TwitterUserAuth extends TwitterGuestAuth {
     }
 
     const headers = new Headers({
-      authorization: `Bearer ${this.bearerToken}`,
+      authorization: `Bearer ${BEARER_TOKEN}`,
       cookie: await this.getCookieString(),
       'content-type': 'application/json',
       'User-Agent':

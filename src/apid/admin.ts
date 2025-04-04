@@ -7,7 +7,6 @@ import {
   defaultAccountListFormat,
   parseAccountList,
 } from '../account-manager';
-import { resetFailedLogins } from './account';
 
 export const router = new Hono();
 
