@@ -10,6 +10,7 @@ import type { TwitterApiErrorRaw } from './errors';
 import { Type, type Static } from '@sinclair/typebox';
 import { Check } from '@sinclair/typebox/value';
 import * as OTPAuth from 'otpauth';
+import { fetchConfirmationCodeFromEmail } from './email-helper';
 
 interface TwitterUserAuthFlowInitRequest {
   flow_name: string;
@@ -40,7 +41,19 @@ interface TwitterUserAuthVerifyCredentials {
 
 const TwitterUserAuthSubtask = Type.Object({
   subtask_id: Type.String(),
-  enter_text: Type.Optional(Type.Object({})),
+  enter_text: Type.Optional(
+    Type.Object({
+      header: Type.Optional(
+        Type.Object({
+          primary_text: Type.Optional(
+            Type.Object({
+              text: Type.String(),
+            }),
+          ),
+        }),
+      ),
+    }),
+  ),
 });
 type TwitterUserAuthSubtask = Static<typeof TwitterUserAuthSubtask>;
 
@@ -124,6 +137,7 @@ export class TwitterUserAuth extends TwitterGuestAuth {
     password: string,
     email?: string,
     twoFactorSecret?: string,
+    emailPassword?: string,
   ): Promise<void> {
     await this.updateGuestToken();
 
@@ -153,7 +167,7 @@ export class TwitterUserAuth extends TwitterGuestAuth {
           );
         }
       } else if (next.subtask.subtask_id === 'LoginAcid') {
-        next = await this.handleAcid(next, email);
+        next = await this.handleAcid(next, email, emailPassword);
       } else if (next.subtask.subtask_id === 'LoginSuccessSubtask') {
         next = await this.handleSuccessSubtask(next);
       } else {
@@ -210,14 +224,8 @@ export class TwitterUserAuth extends TwitterGuestAuth {
 
     return await this.executeFlowTask({
       flow_name: 'login',
-      input_flow_data: {
-        flow_context: {
-          debug_overrides: {},
-          start_location: {
-            location: 'splash_screen',
-          },
-        },
-      },
+      // prettier-ignore
+      ...{"input_flow_data":{"flow_context":{"debug_overrides":{},"start_location":{"location":"splash_screen"}}},"subtask_versions":{"action_list":2,"alert_dialog":1,"app_download_cta":1,"check_logged_in_account":1,"choice_selection":3,"contacts_live_sync_permission_prompt":0,"cta":7,"email_verification":2,"end_flow":1,"enter_date":1,"enter_email":2,"enter_password":5,"enter_phone":2,"enter_recaptcha":1,"enter_text":5,"enter_username":2,"generic_urt":3,"in_app_notification":1,"interest_picker":3,"js_instrumentation":1,"menu_dialog":1,"notifications_permission_prompt":2,"open_account":2,"open_home_timeline":1,"open_link":1,"phone_verification":4,"privacy_options":1,"security_key":3,"select_avatar":4,"select_banner":2,"settings_list":7,"show_code":1,"sign_up":2,"sign_up_review":4,"tweet_selection_urt":1,"update_users":1,"upload_media":1,"user_recommendations_list":4,"user_recommendations_urt":1,"wait_spinner":3,"web_modal":1}},
     });
   }
 
@@ -228,7 +236,8 @@ export class TwitterUserAuth extends TwitterGuestAuth {
         {
           subtask_id: 'LoginJsInstrumentationSubtask',
           js_instrumentation: {
-            response: '{}',
+            response:
+              '{"rf":{"a025043bb37f213c64177fb7dee22fa9622c41d63db12a8320344d2e4eb870b4":-252,"a3ef81ad1f68f094ab6b38abbd90a2e5fa1725153d0a6e5b4ae2358fbe10f786":251,"a6bdc63164db5b9016b7ea90549fa9250f6f73fc5699c059fe403eab598708ba":-218,"ab7835855ed63123eb666561fd011a0abcf04d4da7d02e288dc91448eabcb18b":219},"s":"rU9F_dp9s1M0bbnfdrWH7yIqTl2DYdxDkqB0HehtDaNJwDp78HjutGdXmsBupKSYjDtRMpepAHPNepcMFwmLyhi4RGnfi9CR9aOj3eHxa_yOIJfjy6deDrPSoBp0Ci-JjPk6QkulbW-VgNos-eG-dAXScs91EiWW1-2hUFQIlGM_t2gBoTwsQHSZc70SBHNDZBNYB0sCpHbf69oox-SDAREeO4wHj7743V9DnygwK7Th7ECqrmXrw24pgQxw_bizAaI2S1cVS9Yf2IX-8QWL6qkjypVkPUNoXJ-SdUKegAYfeQ8RM13B7_aGMYk6U1mZyBSQrWf5IMQqXZsERHiP3wAAAZYD0RfC"}',
             link: 'next_link',
           },
         },
@@ -343,13 +352,45 @@ export class TwitterUserAuth extends TwitterGuestAuth {
     prev: FlowTokenResultSuccess,
     email: string | undefined,
   ) {
+    let inputText: string | undefined = email;
+
+    const isCodePrompt = prev.subtask?.enter_text?.header?.primary_text?.text
+      ?.toLowerCase()
+      .includes('code');
+
+    if (isCodePrompt && email && emailPassword) {
+      console.log(`Attempting to fetch confirmation code from email: ${email}`);
+      try {
+        // Call the imported helper function
+        inputText = await fetchConfirmationCodeFromEmail(email, emailPassword);
+        console.log(`Successfully fetched confirmation code: ${inputText}`);
+      } catch (error) {
+        console.error(`Failed to fetch email code: ${error}`);
+        throw new Error(
+          `Failed to automatically fetch the email confirmation code for ${email}. Please provide it manually or check credentials.`,
+        );
+      }
+    } else if (isCodePrompt && !emailPassword) {
+      throw new Error(
+        "Twitter is asking for an email confirmation code, but 'emailPassword' was not provided.",
+      );
+    } else if (!inputText && !isCodePrompt) {
+      throw new Error(
+        "Twitter is asking for email confirmation, but 'email' was not provided.",
+      );
+    } else if (!inputText && isCodePrompt) {
+      throw new Error(
+        'Failed to determine input for LoginAcid step. Email code might be required.',
+      );
+    }
+
     return await this.executeFlowTask({
       flow_token: prev.flowToken,
       subtask_inputs: [
         {
           subtask_id: 'LoginAcid',
           enter_text: {
-            text: email,
+            text: inputText,
             link: 'next_link',
           },
         },
