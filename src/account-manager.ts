@@ -1,11 +1,11 @@
-import { CookieJar, Cookie } from 'tough-cookie';
+import { CookieJar } from 'tough-cookie';
 import { Scraper } from './scraper.js';
-import { type TwitterAuth, TwitterGuestAuth } from './auth.js';
+import { type TwitterAuth } from './auth.js';
 import path, { join } from 'path';
 import { JSONFileSyncPreset } from 'lowdb/node';
 import { trace, SpanStatusCode } from '@opentelemetry/api';
 import { logs, SeverityNumber } from '@opentelemetry/api-logs';
-import { createPool, Pool } from 'lightning-pool';
+import { logger } from './apid/tracing.js';
 
 export type AccountInfo = {
   username: string;
@@ -29,7 +29,6 @@ type DbData = {
   lastSaved?: number;
 };
 
-// Default format for account list
 export const defaultAccountListFormat =
   'username:password:email:emailPassword:authToken:twoFactorSecret';
 
@@ -54,7 +53,7 @@ export function parseAccountList(
     .replace('twoFactorSecret', `(?<twoFactorSecret>.*)`)
     .replaceAll('ANY', `.*`);
   const exp = new RegExp(regexp);
-  const accounts = csvish
+  return csvish
     .split(/\r?\n/g)
     .filter((s) => !!s)
     .map((line, index) => {
@@ -64,89 +63,45 @@ export function parseAccountList(
           `Couldn't match line ${index + 1} with regexp \`${regexp}\``,
         );
       }
-      const {
-        authToken,
-        email,
-        emailPassword,
-        password,
-        username,
-        twoFactorSecret,
-      } = values;
-      return {
-        username,
-        password,
-        email,
-        emailPassword,
-        authToken,
-        twoFactorSecret,
-      };
+      return values as unknown as AccountInfo;
     });
-  return accounts;
 }
 
-// Wait utility function
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-// Debounce function implementation for login
-function pDebounce<T extends (...args: any[]) => Promise<any>>(fn: T) {
-  let pending: Promise<any> | null = null;
-  const debounced = ((...args: Parameters<T>) => {
-    if (!pending) {
-      pending = fn(...args).finally(() => {
-        pending = null;
-      });
-    }
-    return pending;
-  }) as T;
-
-  return debounced;
-}
 
 async function telemetryFetch(
   input: string | URL | Request,
   init?: RequestInit,
 ): Promise<Response> {
   const tracer = trace.getTracer('fetch-tracer');
+  const urlString =
+    typeof input === 'string'
+      ? input
+      : input instanceof URL
+      ? input.toString()
+      : input.url;
+  const method = init?.method || 'GET';
 
   return tracer.startActiveSpan(
-    `fetch ${init?.method || 'GET'} ${
-      typeof input === 'string'
-        ? input
-        : input instanceof URL
-        ? input.toString()
-        : input.url
-    }`,
+    `fetch ${method} ${urlString}`,
     async (span) => {
       try {
-        // Add request details to span
-        span.setAttribute(
-          'http.url',
-          typeof input === 'string'
-            ? input
-            : input instanceof URL
-            ? input.toString()
-            : input.url,
-        );
-        span.setAttribute('http.method', init?.method || 'GET');
-
-        // Perform the fetch
+        span.setAttributes({
+          'http.url': urlString,
+          'http.method': method,
+        });
         const response = await fetch(input, init);
-
-        // Add response details to span
-        span.setAttribute('http.status_code', response.status);
-        span.setAttribute('http.status_text', response.statusText);
-
+        span.setAttributes({
+          'http.status_code': response.status,
+          'http.status_text': response.statusText,
+        });
         span.setStatus({
           code: response.ok ? SpanStatusCode.OK : SpanStatusCode.ERROR,
         });
-
         return response;
       } catch (error) {
-        // Record error in span
-        span.setStatus({
-          code: SpanStatusCode.ERROR,
-          message: error instanceof Error ? error.message : String(error),
-        });
+        const message = error instanceof Error ? error.message : String(error);
+        span.setStatus({ code: SpanStatusCode.ERROR, message });
         span.recordException(error as Error);
         throw error;
       } finally {
@@ -156,358 +111,600 @@ async function telemetryFetch(
   );
 }
 
-// TODO: implement rotating auth pool
-// [x] use lighting-pool or something similar (https://www.npmjs.com/package/lightning-pool)
-// [x] each is a Scraper instance or similar which represents an authed user
-// [ ] (under a specific proxy!)
-// [x] ~~if it fails, reset into another account with another proxy~~ just create a new one
-// [x] make a virtual TwitterAuth that just fetched from an account.
-//    if it fails because of an account-related problem, kill account from pool (and have it reset into another account+proxy), and pull another account
-// if there's no accounts available in the pool, await until one is available.
-// because of how this pool works, it should also mean accounts are only used one at a time. i don't think that's necesarily bad but it can be a bit slow.
+type ActiveAccount = {
+  scraper: Scraper;
+  accountState: AccountState;
+};
 
-/**
- * Account manager for Twitter scraping
- * Handles account rotation, authentication, and cookie management
- */
 export class AccountManager {
-  // public static DEFAULT_BEARER_TOKEN =
-  // 'AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA';
   private db: ReturnType<typeof JSONFileSyncPreset<DbData>>;
-  private pool: Pool<{ scraper: Scraper; account: AccountState }>;
+  private activeAccounts: ActiveAccount[] = [];
+  private roundRobinIndex = 0;
+  private poolSize = 5;
+  private initializationPromise: Promise<void> | null = null;
+  private readonly logger = logger.child({
+    module: 'AccountManager',
+  });
 
-  constructor(accounts: AccountInfo[] = [], options?: { statePath?: string }) {
-    const dbPath =
-      options?.statePath ||
-      join(
-        process.cwd(),
-        process.env.ACCOUNTS_STATE_PATH || 'account-state.json',
-      );
-
-    this.db = JSONFileSyncPreset<DbData>(dbPath, {
-      accounts: accounts.map((a) => ({
-        ...a,
-        tokenState: 'unknown',
-        failedLogin: false,
-      })),
-    });
-    this.db.write();
-
-    let usernamesBeingUsed = new Set<string>();
-
-    this.pool = createPool(
-      {
-        create: async (info) => {
-          const scraper = new Scraper({
-            fetch: telemetryFetch,
-          });
-
-          const logger = logs.getLogger('docial', '0.0.0');
-
-          const loggingableAccounts = this.db.data.accounts
-            .filter(
-              (a) =>
-                !a.failedLogin &&
-                !usernamesBeingUsed.has(a.username) &&
-                (a.rateLimitedUntil ? a.rateLimitedUntil < Date.now() : true),
-            )
-            .sort((a, b) =>
-              a.tokenState === 'working'
-                ? -1
-                : b.tokenState === 'working'
-                ? 1
-                : Math.random() - 0.5,
-            );
-          if (!loggingableAccounts.length) {
-            throw new Error('No accounts available for login');
-          }
-
-          // Keep trying to log into accounts unless all don't work
-          let i = 0;
-          let account: AccountState;
-          while (true) {
-            account = loggingableAccounts[i];
-            console.debug('Trying', account);
-            if (!account) {
-              throw new Error('No accounts available for login');
-            }
-            usernamesBeingUsed.add(account.username);
-
-            try {
-              let loggedIn = false;
-
-              if (account.authToken) {
-                await scraper.loginWithToken(account.authToken);
-                if (await scraper.isLoggedIn()) {
-                  loggedIn = true;
-                }
-              }
-              if (!loggedIn) {
-                console.warn(
-                  `Couldn't log in with authToken, logging in with username/password.`,
-                );
-                await scraper.login(
-                  account.username,
-                  account.password,
-                  account.email,
-                  account.twoFactorSecret,
-                );
-                if (await scraper.isLoggedIn()) {
-                  loggedIn = true;
-                }
-              }
-
-              if (loggedIn) {
-                logger.emit({
-                  severityNumber: SeverityNumber.DEBUG,
-                  body: `Logged into @${account.username}`,
-                });
-                const cookies = await scraper.getCookies();
-                const authTokenCookie = cookies.find(
-                  (c) => c.key === 'auth_token',
-                );
-                logger.emit({
-                  severityNumber: SeverityNumber.DEBUG,
-                  body: `auth_token: ${authTokenCookie?.value}`,
-                });
-
-                // Update account state with working token
-                if (authTokenCookie && authTokenCookie.value) {
-                  account.authToken = authTokenCookie.value;
-                  account.tokenState = 'working';
-                  account.failedLogin = false;
-                  account.lastUsed = Date.now();
-                  this.db.write();
-                }
-                return { scraper, account };
-              } else {
-                throw new Error('Failed to log in');
-              }
-            } catch (error) {
-              usernamesBeingUsed.delete(account.username);
-              console.error(
-                `Couldn't login into @${account.username}:`,
-                (error as Error).toString(),
-              );
-
-              account.tokenState = 'failed';
-              account.failedLogin = true;
-              account.lastFailedAt = Date.now();
-              this.db.write();
-
-              // Special handling for rate limiting
-              if ((error as Error).toString().includes('ArkoseLogin')) {
-                await wait(30 * 1000); // Wait 30 seconds before trying another account
-              }
-            } finally {
-              i++;
-            }
-          }
-          throw new Error('No accounts available for login');
-        },
-        destroy(resource) {
-          usernamesBeingUsed.delete(resource.account.username);
-        },
-        async validate(resource) {
-          const loggedIn = await resource.scraper.isLoggedIn();
-          if (!loggedIn) {
-            throw new Error('Not logged in');
-          }
-        },
-      },
-      {
-        min: 1,
-        minIdle: 1,
-        max: 10,
-        acquireMaxRetries: 5,
-      },
+  constructor(initialAccounts: AccountInfo[] = [], options?: {}) {
+    const dbPath = join(
+      process.cwd(),
+      process.env.ACCOUNTS_STATE_PATH || 'accounts-state.json',
     );
+    this.db = JSONFileSyncPreset<DbData>(dbPath, { accounts: [] });
+    this.logger.debug(`AccountManager constructed. DB loaded from ${dbPath}.`);
+
+    const existingUsernames = new Set(
+      this.db.data.accounts.map((a) => a.username),
+    );
+    let addedCount = 0;
+    initialAccounts.forEach((acc) => {
+      if (acc.username && !existingUsernames.has(acc.username)) {
+        this.db.data.accounts.push({
+          ...acc,
+          tokenState: 'unknown',
+          failedLogin: false,
+        });
+        existingUsernames.add(acc.username);
+        addedCount++;
+      }
+    });
+    if (addedCount > 0) {
+      this.logger.info(`Added ${addedCount} new accounts from initial list.`);
+      this.db.write();
+    }
+
+    this.logger.info(`Starting background pool initialization.`);
+    this.initializationPromise = this._initializePool();
+    this.initializationPromise.catch((error) => {
+      this.logger.error(
+        `Unhandled error during background pool initialization: ${
+          (error as Error)?.message
+        }`,
+      );
+    });
   }
 
-  /**
-   * Add accounts to the manager
-   */
+  private async _initializePool(): Promise<void> {
+    this.logger.info(
+      `Starting _initializePool (target size: ${this.poolSize})...`,
+    );
+    this.activeAccounts = [];
+
+    const candidateAccounts = this.db.data.accounts
+      .filter((a) => !a.failedLogin)
+      .sort((a, b) => (a.lastUsed ?? 0) - (b.lastUsed ?? 0));
+
+    this.logger.debug(
+      `Found ${candidateAccounts.length} potential candidates for the pool.`,
+    );
+
+    for (const account of candidateAccounts) {
+      if (this.activeAccounts.length >= this.poolSize) {
+        this.logger.debug(
+          `Reached pool size limit (${this.poolSize}). Stopping initialization loop.`,
+        );
+        break;
+      }
+
+      if (
+        account.failedLogin ||
+        (account.rateLimitedUntil && account.rateLimitedUntil > Date.now())
+      ) {
+        this.logger.debug(
+          `Skipping candidate @${account.username} (failedLogin: ${
+            account.failedLogin
+          }, rateLimitedUntil: ${
+            account.rateLimitedUntil
+              ? new Date(account.rateLimitedUntil).toISOString()
+              : 'N/A'
+          })`,
+        );
+        continue;
+      }
+
+      this.logger.debug(`Attempting to initialize @${account.username}...`);
+
+      try {
+        const scraper = new Scraper({ fetch: telemetryFetch });
+        let loggedIn = false;
+
+        if (account.authToken) {
+          try {
+            this.logger.trace(
+              `Attempting token login for @${account.username}...`,
+            );
+            await scraper.loginWithToken(account.authToken);
+            loggedIn = await scraper.isLoggedIn();
+            if (!loggedIn) {
+              this.logger.warn(
+                `Token login failed for @${account.username}. Clearing token.`,
+              );
+              account.tokenState = 'failed';
+              account.authToken = '';
+              this.db.write();
+            } else {
+              this.logger.trace(
+                `Token login successful for @${account.username}.`,
+              );
+            }
+          } catch (tokenError) {
+            this.logger.warn(
+              `Token login error for @${account.username}: ${
+                (tokenError as Error).message
+              }. Clearing token.`,
+            );
+            account.tokenState = 'failed';
+            account.authToken = '';
+            this.db.write();
+          }
+        }
+
+        if (!loggedIn) {
+          this.logger.debug(
+            `Attempting user/pass login for @${account.username}...`,
+          );
+          await scraper.login(
+            account.username,
+            account.password,
+            account.email,
+            account.twoFactorSecret,
+          );
+          loggedIn = await scraper.isLoggedIn();
+        }
+
+        if (loggedIn) {
+          const cookies = await scraper.getCookies();
+          const authTokenCookie = cookies.find((c) => c.key === 'auth_token');
+          this.logger.info(
+            `Successfully initialized and logged into @${account.username}. Added to active pool.`,
+          );
+
+          account.tokenState = 'working';
+          account.failedLogin = false;
+          if (
+            authTokenCookie?.value &&
+            account.authToken !== authTokenCookie.value
+          ) {
+            account.authToken = authTokenCookie.value;
+            this.logger.debug(`Updated auth token for @${account.username}.`);
+          }
+          account.lastUsed = Date.now();
+          this.db.write();
+
+          this.activeAccounts.push({ scraper, accountState: account });
+        } else {
+          this.logger.error(
+            `Login attempt sequence completed for @${account.username}, but still not logged in.`,
+          );
+          throw new Error('Failed to log in with token or username/password.');
+        }
+      } catch (error) {
+        this.logger.error(
+          `Initialization failed for @${account.username}: ${
+            (error as Error).message
+          }`,
+        );
+        account.tokenState = 'failed';
+        account.failedLogin = true;
+        account.lastFailedAt = Date.now();
+        this.db.write();
+        if ((error as Error).message.includes('Arkose')) {
+          await wait(5000);
+        }
+      }
+    }
+
+    if (this.activeAccounts.length === 0) {
+      this.logger.error(
+        `Pool initialization finished, but NO accounts are currently active.`,
+      );
+    } else {
+      this.logger.info(
+        `Pool initialization finished. ${this.activeAccounts.length} active accounts.`,
+      );
+    }
+  }
+
+  public async ensureInitialized(): Promise<void> {
+    if (!this.initializationPromise) {
+      this.logger.warn(
+        `ensureInitialized called but initializationPromise is null. Triggering _initializePool now.`,
+      );
+      this.initializationPromise = this._initializePool();
+      this.initializationPromise.catch((error) => {
+        this.logger.error(
+          `Unhandled error during late pool initialization: ${
+            (error as Error)?.message
+          }`,
+        );
+      });
+    }
+    this.logger.trace(`ensureInitialized: Awaiting initializationPromise...`);
+    await this.initializationPromise;
+    this.logger.trace(
+      `ensureInitialized: initializationPromise resolved. Active accounts: ${this.activeAccounts.length}`,
+    );
+
+    if (this.activeAccounts.length === 0) {
+      this.logger.error(
+        `ensureInitialized: Pool is initialized but contains no active accounts.`,
+      );
+      throw new Error(
+        'Account pool is empty or failed to initialize properly.',
+      );
+    }
+  }
+
+  public async getNextAccount(): Promise<ActiveAccount | null> {
+    this.logger.trace(`getNextAccount called. Ensuring initialized...`);
+    await this.ensureInitialized();
+
+    const poolSize = this.activeAccounts.length;
+    if (poolSize === 0) {
+      this.logger.warn(
+        `getNextAccount: No accounts in the active pool after initialization.`,
+      );
+      return null;
+    }
+
+    const initialIndex = this.roundRobinIndex;
+    for (let i = 0; i < poolSize; i++) {
+      const currentIndex = (initialIndex + i) % poolSize;
+      const activeAccount = this.activeAccounts[currentIndex];
+
+      const rateLimitedUntil = activeAccount.accountState.rateLimitedUntil;
+      if (rateLimitedUntil && rateLimitedUntil > Date.now()) {
+        this.logger.debug(
+          `getNextAccount: Skipping @${
+            activeAccount.accountState.username
+          } (rate-limited until ${new Date(rateLimitedUntil).toISOString()})`,
+        );
+        continue;
+      } else if (rateLimitedUntil) {
+        this.logger.info(
+          `getNextAccount: Cleared expired rate limit for @${activeAccount.accountState.username}`,
+        );
+        activeAccount.accountState.rateLimitedUntil = undefined;
+        this.db.write();
+      }
+
+      this.roundRobinIndex = (currentIndex + 1) % poolSize;
+      activeAccount.accountState.lastUsed = Date.now();
+      this.logger.debug(
+        `getNextAccount: Providing account @${activeAccount.accountState.username}`,
+      );
+      return activeAccount;
+    }
+
+    this.logger.warn(
+      `getNextAccount: Looped through all ${poolSize} active accounts, but none are currently usable (all rate-limited?).`,
+    );
+    return null;
+  }
+
+  public updateRateLimit(username: string, until: number | undefined): void {
+    const account = this.db.data.accounts.find((a) => a.username === username);
+    if (account) {
+      account.rateLimitedUntil = until;
+      if (until) {
+        this.logger.warn(
+          `Account @${username} rate-limited until ${new Date(
+            until,
+          ).toISOString()}`,
+        );
+      } else {
+        this.logger.info(`Cleared rate limit for @${username}`);
+      }
+      this.db.write();
+    } else {
+      this.logger.warn(
+        `updateRateLimit: Could not find account @${username} in DB to update status.`,
+      );
+    }
+  }
+
+  public markFailed(username: string): void {
+    const account = this.db.data.accounts.find((a) => a.username === username);
+    if (account) {
+      account.failedLogin = true;
+      account.tokenState = 'failed';
+      account.lastFailedAt = Date.now();
+      this.logger.error(`Account @${username} marked as failed in DB.`);
+      this.db.write();
+
+      const activeIndex = this.activeAccounts.findIndex(
+        (a) => a.accountState.username === username,
+      );
+      if (activeIndex > -1) {
+        this.activeAccounts.splice(activeIndex, 1);
+        this.logger.info(
+          `Removed @${username} from active pool due to failure. Active count: ${this.activeAccounts.length}. Triggering pool replenishment.`,
+        );
+        this.initializationPromise = this._initializePool();
+        this.initializationPromise.catch((error) => {
+          this.logger.error(
+            `Unhandled error during background pool replenishment after delete: ${
+              (error as Error)?.message
+            }`,
+          );
+        });
+      }
+    } else {
+      this.logger.warn(
+        `markFailed: Could not find account @${username} in DB to mark as failed.`,
+      );
+    }
+  }
+
   addAccounts(newAccounts: AccountInfo[]): void {
+    let added = false;
     newAccounts.forEach((account) => {
-      if (account.username) {
+      if (
+        account.username &&
+        !this.db.data.accounts.some((a) => a.username === account.username)
+      ) {
         this.db.data.accounts.push({
           ...account,
           tokenState: 'unknown',
           failedLogin: false,
         });
+        added = true;
       }
     });
-    this.db.write();
+    if (added) {
+      this.logger.info(
+        `Added accounts via addAccounts. Triggering pool re-initialization.`,
+      );
+      this.db.write();
+      this.initializationPromise = this._initializePool();
+      this.initializationPromise.catch((error) => {
+        this.logger.error(
+          `Unhandled error during pool re-initialization after addAccounts: ${
+            (error as Error)?.message
+          }`,
+        );
+      });
+    }
   }
 
   deleteAccount(username: string): boolean {
     const initialLength = this.db.data.accounts.length;
     this.db.data.accounts = this.db.data.accounts.filter(
-      (account) => account.username !== username,
+      (a) => a.username !== username,
     );
+    const changed = this.db.data.accounts.length !== initialLength;
 
-    if (this.db.data.accounts.length !== initialLength) {
+    if (changed) {
+      this.logger.info(`Deleted @${username} from DB.`);
       this.db.write();
-      return true;
+      const activeIndex = this.activeAccounts.findIndex(
+        (a) => a.accountState.username === username,
+      );
+      if (activeIndex > -1) {
+        this.activeAccounts.splice(activeIndex, 1);
+        this.logger.info(
+          `Removed @${username} from active pool. Active count: ${this.activeAccounts.length}. Triggering pool replenishment.`,
+        );
+        this.initializationPromise = this._initializePool();
+        this.initializationPromise.catch((error) => {
+          this.logger.error(
+            `Unhandled error during background pool replenishment after delete: ${
+              (error as Error)?.message
+            }`,
+          );
+        });
+      }
     }
-
-    return false;
+    return changed;
   }
 
   getAllAccounts(): AccountState[] {
     return this.db.data.accounts;
   }
-
+  getActivePoolAccounts(): ActiveAccount[] {
+    return this.activeAccounts;
+  }
   get hasAccountsAvailable(): boolean {
-    return this.db.data.accounts.some((a) => !a.failedLogin);
+    const dbHasPotential = this.db.data.accounts.some((a) => !a.failedLogin);
+    const poolIsActive =
+      this.initializationPromise != null && this.activeAccounts.length > 0;
+    return dbHasPotential || poolIsActive;
   }
 
-  /**
-   * Create a TwitterAuth instance that uses the account manager
-   */
   createAuthInstance(): TwitterAuth {
-    return new TwitterPoolAuth(this.pool, this.db);
+    return new TwitterPoolAuth(this);
   }
 
   public resetFailedLogins(): void {
+    this.logger.info(`Resetting failed/rate-limit status for all accounts.`);
     this.db.data.accounts.forEach((account) => {
       account.failedLogin = false;
+      account.tokenState = 'unknown';
+      account.lastFailedAt = undefined;
+      account.rateLimitedUntil = undefined;
     });
     this.db.write();
+    this.logger.info(`Triggering full pool re-initialization after reset.`);
+    this.initializationPromise = this._initializePool();
+    this.initializationPromise.catch((error) => {
+      this.logger.error(
+        `Unhandled error during pool re-initialization after reset: ${
+          (error as Error)?.message
+        }`,
+      );
+    });
   }
 }
 
-export const accountManager = new AccountManager([], {
-  statePath:
-    process.env.ACCOUNTS_STATE_PATH ||
-    path.join(process.cwd(), 'accounts-state.json'),
-});
+export const accountManager = new AccountManager([], {});
 
 class TwitterPoolAuth implements TwitterAuth {
-  private pool: Pool<{ scraper: Scraper; account: AccountState }>;
-  private db: ReturnType<typeof JSONFileSyncPreset<DbData>>;
-  private currentResource: { scraper: Scraper; account: AccountState } | null =
-    null;
+  private manager: AccountManager;
+  private readonly logger = logs.getLogger('docial-auth', '0.0.0');
 
-  constructor(
-    pool: Pool<{ scraper: Scraper; account: AccountState }>,
-    db: ReturnType<typeof JSONFileSyncPreset<DbData>>,
-  ) {
-    this.pool = pool;
-    this.db = db;
-  }
-
-  cookieJar(): CookieJar {
-    if (!this.currentResource) {
-      return new CookieJar();
-    }
-    return this.currentResource.scraper.auth.cookieJar();
-  }
-
-  async isLoggedIn(): Promise<boolean> {
-    // This is handled at the pool level
-    return true;
-  }
-
-  async login(
-    username: string,
-    password: string,
-    email?: string,
-    twoFactorSecret?: string,
-  ): Promise<void> {
-    throw new Error('Login is handled at the pool level');
-  }
-
-  async logout(): Promise<void> {
-    throw new Error('Logout is handled at the pool level');
-  }
-
-  deleteToken(): void {
-    // No-op as tokens are managed at the pool level
-  }
-
-  hasToken(): boolean {
-    // Assume we always have a token available through the pool
-    return true;
-  }
-
-  authenticatedAt(): Date | null {
-    // We don't track this at this level
-    return new Date();
-  }
-
-  async installTo(headers: Headers, url: string): Promise<void> {
-    // noop, handled at the pool level
+  constructor(manager: AccountManager) {
+    this.manager = manager;
   }
 
   async fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
-    const resource = await this.pool.acquire();
-    this.currentResource = resource;
-    try {
-      const headers = new Headers(init?.headers);
-      await resource.scraper.auth.installTo(
-        headers,
-        input instanceof Request ? input.url : input.toString(),
-      );
+    const activePoolSize = this.manager.getActivePoolAccounts().length;
+    const maxRetries = Math.max(activePoolSize, 1);
+    this.logger.emit({
+      severityNumber: SeverityNumber.TRACE,
+      body: `TwitterPoolAuth.fetch called. Max retries: ${maxRetries}`,
+    });
 
-      const response = await resource.scraper.auth.fetch(input, {
-        ...init,
-        headers,
-        proxy: process.env.PROXY_URI,
+    const triedUsernames = new Set<string>();
+    const url = input instanceof Request ? input.url : input.toString();
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      this.logger.emit({
+        severityNumber: SeverityNumber.TRACE,
+        body: `Fetch attempt ${attempt}/${maxRetries}. Getting next account...`,
       });
+      const activeAccount = await this.manager.getNextAccount();
 
-      // Handle rate limiting
-      if (response.status === 429) {
-        console.warn(`Rate limited, retrying with another account`);
-        const ratelimitUntil = new Date(
-          parseInt(response.headers.get('x-rate-limit-reset') || '0') * 1000,
-        );
-        resource.account.rateLimitedUntil = ratelimitUntil.getTime();
-        this.db.write();
-        throw new Error('Rate limited');
+      if (!activeAccount) {
+        this.logger.emit({
+          severityNumber: SeverityNumber.WARN,
+          body: `Fetch attempt ${attempt}/${maxRetries}: No accounts available from getNextAccount(). Waiting...`,
+        });
+        await wait(5000);
+        continue;
       }
 
-      // Handle suspended account
-      if (response.status === 403) {
-        console.warn(`403, retrying with another account`);
-        await this.pool.release(resource);
-        throw new Error('Account probably suspended');
+      const username = activeAccount.accountState.username;
+      if (triedUsernames.has(username)) {
+        this.logger.emit({
+          severityNumber: SeverityNumber.DEBUG,
+          body: `Fetch attempt ${attempt}/${maxRetries}: Already tried @${username} in this fetch call. Skipping.`,
+        });
+        if (triedUsernames.size >= activePoolSize) {
+          this.logger.emit({
+            severityNumber: SeverityNumber.WARN,
+            body: `Fetch attempt ${attempt}/${maxRetries}: All ${activePoolSize} active accounts already tried and failed in this fetch call.`,
+          });
+          break;
+        }
+        continue;
       }
+      triedUsernames.add(username);
 
-      // Clone response so we can read the body and still return it
-      const clonedResponse = response.clone();
       try {
-        const json = await clonedResponse.json();
-        if (
-          'errors' in (json as any) &&
-          (json as any).errors != null &&
-          (json as any).errors.length > 0 &&
-          (json as any).errors[0].message.includes(
-            'Authorization: Denied by access control',
-          )
-        ) {
-          console.warn(`Error in response, retrying with another account`);
-          // TODO: revisar que es lo correcto en estas situaciones
-          resource.account.tokenState = 'failed';
-          this.db.write();
-          throw new Error('Account probably suspended');
+        this.logger.emit({
+          severityNumber: SeverityNumber.DEBUG,
+          body: `Fetch attempt ${attempt}/${maxRetries} using @${username} for URL: ${url}`,
+        });
+
+        const scraper = activeAccount.scraper;
+        const headers = new Headers(init?.headers);
+        await scraper.auth.installTo(headers, url);
+        this.logger.emit({
+          severityNumber: SeverityNumber.TRACE,
+          body: `Auth headers installed for @${username}.`,
+        });
+
+        const response = await telemetryFetch(input, {
+          ...init,
+          headers,
+          proxy: process.env.PROXY_URI,
+        });
+        this.logger.emit({
+          severityNumber: SeverityNumber.TRACE,
+          body: `Fetch response received for @${username}: ${response.status}`,
+        });
+
+        if (response.ok) {
+          this.logger.emit({
+            severityNumber: SeverityNumber.DEBUG,
+            body: `Fetch successful for @${username} (Status: ${response.status})`,
+          });
+          return response;
         }
 
-        return new Response(JSON.stringify(json), {
-          status: response.status,
-          statusText: response.statusText,
-          headers: response.headers,
+        this.logger.emit({
+          severityNumber: SeverityNumber.WARN,
+          body: `Fetch failed for @${username} (Status: ${response.status}) on URL: ${url}.`,
         });
-      } catch (e) {
-        // If we can't parse JSON, just return the original response
-        return response;
+
+        if (response.status === 429) {
+          const resetHeader = response.headers.get('x-rate-limit-reset');
+          const until = resetHeader
+            ? parseInt(resetHeader, 10) * 1000
+            : Date.now() + 5 * 60 * 1000;
+          this.logger.emit({
+            severityNumber: SeverityNumber.WARN,
+            body: `Rate limit (429) hit for @${username}. Marking limited until ${new Date(
+              until,
+            ).toISOString()}.`,
+          });
+          this.manager.updateRateLimit(username, until);
+          continue;
+        }
+
+        if (response.status === 401 || response.status === 403) {
+          this.logger.emit({
+            severityNumber: SeverityNumber.ERROR,
+            body: `Auth error (${response.status}) for @${username}. Marking as failed.`,
+          });
+          this.manager.markFailed(username);
+          continue;
+        }
+
+        this.logger.emit({
+          severityNumber: SeverityNumber.WARN,
+          body: `Non-critical error status ${response.status} for @${username}. Trying next account.`,
+        });
+        continue;
+      } catch (error) {
+        this.logger.emit({
+          severityNumber: SeverityNumber.ERROR,
+          body: `Network error for @${username}: ${
+            (error as Error).message
+          }. Marking as failed.`,
+        });
+        this.manager.markFailed(username);
+        continue;
       }
-    } catch (error) {
-      // If there's an error, we'll release the resource and let the pool handle it
-      return await this.fetch(input, init);
-    } finally {
-      this.currentResource = null;
-      await this.pool.release(resource);
     }
+
+    this.logger.emit({
+      severityNumber: SeverityNumber.ERROR,
+      body: `Fetch failed for ${url} after exhausting all ${maxRetries} retry attempts.`,
+    });
+    throw new Error(
+      `Failed to fetch ${url} after trying ${triedUsernames.size} accounts.`,
+    );
+  }
+
+  cookieJar(): CookieJar {
+    return new CookieJar();
+  }
+  async isLoggedIn(): Promise<boolean> {
+    try {
+      await this.manager.ensureInitialized();
+      return this.manager.getActivePoolAccounts().length > 0;
+    } catch (initError) {
+      return false;
+    }
+  }
+  async login(): Promise<void> {
+    throw new Error('Login managed by AccountManager pool.');
+  }
+  async logout(): Promise<void> {
+    throw new Error('Logout managed by AccountManager pool.');
+  }
+  deleteToken(): void {
+    throw new Error('Tokens managed by AccountManager pool.');
+  }
+  hasToken(): boolean {
+    return this.manager.getActivePoolAccounts().length > 0;
+  }
+  authenticatedAt(): Date | null {
+    return new Date();
+  }
+  async installTo(): Promise<void> {
+    /* No-op: handled within fetch */
   }
 }

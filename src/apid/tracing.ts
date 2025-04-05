@@ -58,7 +58,9 @@ const sdk = new NodeSDK({
 // Starting the OpenTelemetry SDK to begin collecting telemetry data
 sdk.start();
 
-export const logger: Logger = pino();
+export const logger: Logger = pino({
+  level: 'debug',
+});
 logger.info('Tracing initialized');
 
 let rawTracer: Tracer | undefined;
