@@ -52,6 +52,8 @@ async function parseIdOrHandle(idOrHandle: string, auth: TwitterAuth) {
 }
 
 router.get('/:handle', verifyToken, async (c) => {
+  if (!c.req.param('handle').startsWith('@'))
+    throw new HTTPJsonException(400, 'Handle must start with @');
   const handle = c.req.param('handle').slice(1);
   const auth = accountManager.createAuthInstance();
 

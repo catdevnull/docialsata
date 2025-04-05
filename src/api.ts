@@ -85,11 +85,10 @@ export async function requestApi<T>(
 
       return {
         success: false,
-        err: new Error('Failed to perform request.'),
+        err,
       };
     }
 
-    console.trace('Updating cookie jar', url);
     await updateCookieJar(auth.cookieJar(), res.headers);
 
     if (res.status === 429) {

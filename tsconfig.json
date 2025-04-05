@@ -20,6 +20,6 @@
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
     "stripInternal": true,
-    "types": ["jest", "@types/bun"]
+    "types": ["jest", "@types/bun", "bun-types"]
   }
 }
