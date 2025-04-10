@@ -11,11 +11,7 @@ import { Type, type Static } from '@sinclair/typebox';
 import { Check } from '@sinclair/typebox/value';
 import * as OTPAuth from 'otpauth';
 import { fetchConfirmationCodeFromEmail } from './email-helper';
-import { execSync } from 'child_process';
-import { mkdtemp, writeFile, unlink } from 'fs/promises';
-import { join } from 'path';
-import { tmpdir } from 'os';
-
+import { TransactionIdGenerator as TransactionIdGenerator } from './transaction-id';
 interface TwitterUserAuthFlowInitRequest {
   flow_name: string;
   input_flow_data: Record<string, unknown>;
@@ -73,8 +69,7 @@ type FlowTokenResult = FlowTokenResultSuccess | { status: 'error'; err: Error };
  * A user authentication token manager.
  */
 export class TwitterUserAuth extends TwitterGuestAuth {
-  private initialHtmlContent: string | null = null;
-
+  private transactionIdGenerator: TransactionIdGenerator | null = null;
   constructor(options?: Partial<TwitterAuthOptions>) {
     super(options);
   }
@@ -201,9 +196,9 @@ export class TwitterUserAuth extends TwitterGuestAuth {
         throw new Error('Failed to retrieve HTML after potential migrations.');
       }
 
-      this.initialHtmlContent = html;
+      this.transactionIdGenerator = new TransactionIdGenerator(html);
     } catch (error: any) {
-      this.initialHtmlContent = null;
+      this.transactionIdGenerator = null;
       throw new Error(
         `Transaction ID initialization failed: ${error.message || error}`,
       );
@@ -214,52 +209,12 @@ export class TwitterUserAuth extends TwitterGuestAuth {
     method: string,
     path: string,
   ): Promise<string> {
-    if (!this.initialHtmlContent) {
+    if (!this.transactionIdGenerator) {
       throw new Error(
         'Initial HTML content is missing. Run initTransactionIdGenerator() first.',
       );
     }
-
-    let tempDirPath: string | undefined;
-    let tempHtmlPath: string | undefined;
-
-    try {
-      tempDirPath = await mkdtemp(join(tmpdir(), 'twitter-scraper-'));
-      tempHtmlPath = join(tempDirPath, 'x-initial.html');
-
-      await writeFile(tempHtmlPath, this.initialHtmlContent, 'utf-8');
-
-      const cliScriptDir = join(
-        process.cwd(),
-        'src',
-        'x-client-transaction-py',
-      );
-      const command = `uv run python -m x_client_transaction.cli --html-file "${tempHtmlPath}" --method "${method}" --path "${path}"`;
-
-      const transactionId = execSync(command, {
-        cwd: cliScriptDir,
-        encoding: 'utf-8',
-        stdio: ['ignore', 'pipe', 'pipe'],
-      }).trim();
-
-      if (!transactionId || transactionId.length < 10) {
-        throw new Error(`Invalid transaction ID generated: '${transactionId}'`);
-      }
-
-      return transactionId;
-    } catch (error: any) {
-      throw new Error(
-        `Failed to generate transaction ID: ${error.message || error}`,
-      );
-    } finally {
-      if (tempHtmlPath) {
-        try {
-          await unlink(tempHtmlPath);
-        } catch (cleanupError: any) {
-          // Silently ignore cleanup errors
-        }
-      }
-    }
+    return this.transactionIdGenerator.getTransactionId(method, path);
   }
 
   async isLoggedIn(): Promise<boolean> {
@@ -369,14 +324,7 @@ export class TwitterUserAuth extends TwitterGuestAuth {
   ): Promise<void> {
     await this.updateGuestToken();
 
-    try {
-      await this.initTransactionIdGenerator();
-    } catch (error: any) {
-      console.warn(
-        '[Login Flow] Failed to initialize HTML for transaction ID generation before login flow:',
-        error.message || error,
-      );
-    }
+    await this.initTransactionIdGenerator();
 
     let next = await this.initLogin();
 
@@ -525,7 +473,7 @@ export class TwitterUserAuth extends TwitterGuestAuth {
   private clearAuthData(): void {
     this.deleteToken();
     this.jar = new CookieJar();
-    this.initialHtmlContent = null;
+    this.transactionIdGenerator = null;
   }
 
   async installCsrfToken(headers: Headers): Promise<void> {
@@ -889,7 +837,7 @@ export class TwitterUserAuth extends TwitterGuestAuth {
     });
     await this.installCsrfToken(headers);
 
-    if (this.initialHtmlContent) {
+    if (this.transactionIdGenerator) {
       try {
         const transactionId = await this.generateTransactionIdViaCli(
           requestMethod,
@@ -900,10 +848,11 @@ export class TwitterUserAuth extends TwitterGuestAuth {
         );
         headers.set('X-Client-Transaction-Id', transactionId);
       } catch (error: any) {
-        console.warn(
-          '[Execute Flow Task] Failed to generate transaction ID for onboarding task, proceeding without it:',
+        console.error(
+          '[Execute Flow Task] Failed to generate transaction ID for onboarding task',
           error.message || error,
         );
+        throw new Error('failed to generate x-client-transaction-id');
       }
     } else {
       console.warn(

@@ -60,6 +60,7 @@
     "@tanstack/react-table": "^8.21.2",
     "@types/imap-simple": "^4.2.9",
     "@types/mailparser": "^3.4.5",
+    "bun_python": "^0.1.8",
     "cross-fetch": "^4.0.0-alpha.5",
     "dayjs": "^1.11.13",
     "headers-polyfill": "^3.1.2",

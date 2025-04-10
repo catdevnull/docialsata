@@ -27,6 +27,7 @@
         "@tanstack/react-table": "^8.21.2",
         "@types/imap-simple": "^4.2.9",
         "@types/mailparser": "^3.4.5",
+        "bun_python": "^0.1.8",
         "cross-fetch": "^4.0.0-alpha.5",
         "dayjs": "^1.11.13",
         "headers-polyfill": "^3.1.2",
@@ -675,6 +676,8 @@
     "buffer-from": ["buffer-from@1.1.2", "", {}, "sha512-E+XQCRwSbaaiChtv6k6Dwgc+bx+Bs6vuKJHHl5kox/BaKbhiXzqQOwK4cO22yElGp2OCmjwVhT3HmxgyPGnJfQ=="],
 
     "bun-types": ["bun-types@1.2.5", "", { "dependencies": { "@types/node": "*", "@types/ws": "~8.5.10" } }, "sha512-3oO6LVGGRRKI4kHINx5PIdIgnLRb7l/SprhzqXapmoYkFl5m4j6EvALvbDVuuBFaamB46Ap6HCUxIXNLCGy+tg=="],
+
+    "bun_python": ["bun_python@0.1.8", "", { "peerDependencies": { "typescript": "^5.7.3" } }, "sha512-YPIfqTtSL6ls+hEGfGOVKp43yYaqF3WephCSlIPXhXcSrV4RY62Pu9EXC8mYP1pqbHviJgVTts4wVsPqp9yciA=="],
 
     "cachedir": ["cachedir@2.3.0", "", {}, "sha512-A+Fezp4zxnit6FanDmv9EqXNAi3vt9DWp51/71UEhXukb7QUuvtv9344h91dyAxuTLoSYJFU299qzR3tzwPAhw=="],
 
