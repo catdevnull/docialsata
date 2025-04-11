@@ -1,13 +1,17 @@
 import { Cookie } from 'tough-cookie';
 import {
   bearerToken,
-  FetchTransformOptions,
+  type FetchTransformOptions,
   requestApi,
-  RequestApiResult,
+  type RequestApiResult,
 } from './api';
-import { TwitterAuth, TwitterAuthOptions, TwitterGuestAuth } from './auth';
+import {
+  type TwitterAuth,
+  type TwitterAuthOptions,
+  TwitterGuestAuth,
+} from './auth';
 import { TwitterUserAuth } from './auth-user';
-import { getProfile, getUserIdByScreenName, Profile } from './profile';
+import { getProfile, getUserIdByScreenName, type Profile } from './profile';
 import {
   fetchSearchProfiles,
   fetchSearchTweets,
@@ -21,10 +25,10 @@ import {
   getFollowing,
   getFollowers,
 } from './relationships';
-import { QueryProfilesResponse, QueryTweetsResponse } from './timeline-v1';
+import type { QueryProfilesResponse, QueryTweetsResponse } from './timeline-v1';
 import { getTrends } from './trends';
 import {
-  Tweet,
+  type Tweet,
   getTweetAnonymous,
   getTweets,
   getLatestTweet,
@@ -32,14 +36,13 @@ import {
   getTweetWhere,
   getTweetsWhere,
   getTweetsByUserId,
-  TweetQuery,
+  type TweetQuery,
   getTweet,
   fetchListTweets,
   getTweetsAndRepliesByUserId,
   getTweetsAndReplies,
 } from './tweets';
 import fetch from 'cross-fetch';
-import { Headers } from 'headers-polyfill';
 import { updateCookieJar } from './requests';
 
 const twUrl = 'https://twitter.com';
@@ -83,8 +86,8 @@ export class Scraper {
    * @internal
    */
   private useGuestAuth() {
-    this.auth = new TwitterGuestAuth(this.token, this.getAuthOptions());
-    this.authTrends = new TwitterGuestAuth(this.token, this.getAuthOptions());
+    this.auth = new TwitterGuestAuth(this.getAuthOptions());
+    this.authTrends = new TwitterGuestAuth(this.getAuthOptions());
   }
 
   /**
@@ -358,7 +361,7 @@ export class Scraper {
     const url = 'https://twitter.com';
     await this.auth.installTo(headers, url);
     const res = await this.auth.fetch(url, {
-      headers,
+      headers: Object.fromEntries(headers),
       credentials: 'include',
     });
     console.log(res.status, res.headers);
@@ -431,7 +434,7 @@ export class Scraper {
     emailPassword?: string,
   ): Promise<void> {
     // Swap in a real authorizer for all requests
-    const userAuth = new TwitterUserAuth(this.token, this.getAuthOptions());
+    const userAuth = new TwitterUserAuth(this.getAuthOptions());
     await userAuth.login(
       username,
       password,
@@ -448,7 +451,7 @@ export class Scraper {
    * @param cookie
    */
   public async loginWithToken(token: string): Promise<void> {
-    const userAuth = new TwitterUserAuth(this.token, this.getAuthOptions());
+    const userAuth = new TwitterUserAuth(this.getAuthOptions());
     await userAuth.loginWithToken(token);
     this.auth = userAuth;
     this.authTrends = userAuth;
@@ -482,7 +485,7 @@ export class Scraper {
    * @param cookies The cookies to set for the current session.
    */
   public async setCookies(cookies: (string | Cookie)[]): Promise<void> {
-    const userAuth = new TwitterUserAuth(this.token, this.getAuthOptions());
+    const userAuth = new TwitterUserAuth(this.getAuthOptions());
     for (const cookie of cookies) {
       await userAuth.cookieJar().setCookie(cookie, twUrl);
     }

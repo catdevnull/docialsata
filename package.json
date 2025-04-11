@@ -61,7 +61,6 @@
     "bun_python": "^0.1.8",
     "cross-fetch": "^4.0.0-alpha.5",
     "dayjs": "^1.11.13",
-    "headers-polyfill": "^3.1.2",
     "hono": "^4.7.4",
     "imapflow": "^1.0.184",
     "json-stable-stringify": "^1.0.2",

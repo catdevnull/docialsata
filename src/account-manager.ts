@@ -228,7 +228,20 @@ export class AccountManager {
       );
 
       try {
-        const scraper = new Scraper({ fetch: telemetryFetch });
+        const scraper = new Scraper({
+          fetch: telemetryFetch,
+          transform: {
+            request: (input, init) => {
+              return [
+                input,
+                {
+                  ...init,
+                  proxy: account.assignedProxy || process.env.PROXY_URI,
+                },
+              ];
+            },
+          },
+        });
         let loggedIn = false;
 
         if (account.authToken) {
