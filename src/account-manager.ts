@@ -126,32 +126,13 @@ export class AccountManager {
     module: 'AccountManager',
   });
 
-  constructor(initialAccounts: AccountInfo[] = [], options?: {}) {
-    const dbPath = join(
-      process.cwd(),
-      process.env.ACCOUNTS_STATE_PATH || 'accounts-state.json',
-    );
-    this.db = JSONFileSyncPreset<DbData>(dbPath, { accounts: [] });
-    this.logger.debug(`AccountManager constructed. DB loaded from ${dbPath}.`);
-
-    const existingUsernames = new Set(
-      this.db.data.accounts.map((a) => a.username),
-    );
-    let addedCount = 0;
-    initialAccounts.forEach((acc) => {
-      if (acc.username && !existingUsernames.has(acc.username)) {
-        this.db.data.accounts.push({
-          ...acc,
-          tokenState: 'unknown',
-          failedLogin: false,
-        });
-        existingUsernames.add(acc.username);
-        addedCount++;
-      }
-    });
-    if (addedCount > 0) {
-      this.logger.info(`Added ${addedCount} new accounts from initial list.`);
-      this.db.write();
+  constructor() {
+    {
+      const DB_PATH = process.env.ACCOUNTS_STATE_PATH || 'accounts-state.json';
+      this.db = JSONFileSyncPreset<DbData>(DB_PATH, { accounts: [] });
+      this.logger.debug(
+        `AccountManager constructed. DB loaded from ${DB_PATH}.`,
+      );
     }
 
     this.logger.info(`Starting background pool initialization.`);
@@ -537,7 +518,7 @@ export class AccountManager {
   }
 }
 
-export const accountManager = new AccountManager([], {});
+export const accountManager = new AccountManager();
 
 class TwitterPoolAuth implements TwitterAuth {
   private manager: AccountManager;
