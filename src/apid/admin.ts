@@ -378,7 +378,7 @@ router.get('/accounts', verifyAdmin, (c) => {
             </div>
 
             <div class="columns is-desktop">
-              <div class="column">
+              <div class="column is-one-third">
                 <div class="box">
                   <h2 class="title is-4 twitter-blue">Import Accounts</h2>
                   <form action="/admin/accounts/import-bulk" method="post">
