@@ -336,7 +336,28 @@ router.get('/accounts', verifyAdmin, (c) => {
             color: #ffdd57;
             font-weight: bold;
           }
+          .proxy-column {
+            display: none;
+          }
+          .proxy-column.visible {
+            display: table-cell;
+          }
         </style>
+        <script>
+          function toggleProxyVisibility() {
+            const proxyColumns = document.querySelectorAll('.proxy-column');
+            proxyColumns.forEach((column) => {
+              column.classList.toggle('visible');
+            });
+
+            const toggleBtn = document.getElementById('toggleProxyBtn');
+            if (proxyColumns[0]?.classList.contains('visible')) {
+              toggleBtn.textContent = 'Hide Proxies';
+            } else {
+              toggleBtn.textContent = 'Show Proxies';
+            }
+          }
+        </script>
       </head>
       <body>
         <section class="section">
@@ -408,7 +429,24 @@ router.get('/accounts', verifyAdmin, (c) => {
 
               <div class="column">
                 <div class="box">
-                  <h2 class="title is-4 twitter-blue">Account Status</h2>
+                  <div class="level">
+                    <div class="level-left">
+                      <div class="level-item">
+                        <h2 class="title is-4 twitter-blue">Account Status</h2>
+                      </div>
+                    </div>
+                    <div class="level-right">
+                      <div class="level-item">
+                        <button
+                          id="toggleProxyBtn"
+                          class="button is-info is-light"
+                          onclick="toggleProxyVisibility()"
+                        >
+                          Show Proxies
+                        </button>
+                      </div>
+                    </div>
+                  </div>
                   ${accounts.length > 0
                     ? html`
                         <div class="table-container">
@@ -420,6 +458,7 @@ router.get('/accounts', verifyAdmin, (c) => {
                                 <th>Username</th>
                                 <th>Status</th>
                                 <th>Last Used</th>
+                                <th class="proxy-column">Proxy</th>
                                 <th>Actions</th>
                               </tr>
                             </thead>
@@ -454,6 +493,9 @@ router.get('/accounts', verifyAdmin, (c) => {
                                           : 'Never'
                                       }
                                     </td>
+                                    <td class="proxy-column">
+                                      ${account.assignedProxy || 'None'}
+                                    </td>
                                     <td>
                                       <form
                                         action="/admin/accounts/delete/${encodeURIComponent(
@@ -482,9 +524,19 @@ router.get('/accounts', verifyAdmin, (c) => {
                 </div>
               </div>
             </div>
-            <form action="/admin/reset-failed-logins" method="post">
-              <input type="submit" value="Reset All Failed Logins" />
-            </form>
+            <div class="box mt-4">
+              <div class="level">
+                <div class="level-left">
+                  <div class="level-item">
+                    <form action="/admin/reset-failed-logins" method="post">
+                      <button type="submit" class="button is-warning">
+                        Reset All Failed Logins
+                      </button>
+                    </form>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </section>
       </body>

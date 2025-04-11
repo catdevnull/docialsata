@@ -22,6 +22,7 @@ export type AccountState = AccountInfo & {
   lastUsed?: number;
   lastFailedAt?: number;
   rateLimitedUntil?: number;
+  assignedProxy?: string;
 };
 
 type DbData = {
@@ -68,6 +69,40 @@ export function parseAccountList(
 }
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Gets a list of proxies from PROXY_LIST environment variable
+ * @returns Array of proxy URIs or null if PROXY_LIST is not defined
+ */
+function getProxyList(): string[] | null {
+  if (!process.env.PROXY_LIST) {
+    return null;
+  }
+
+  return process.env.PROXY_LIST.split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith('#'));
+}
+
+/**
+ * Assigns a proxy to an account if not already assigned
+ * @param account Account to assign proxy to
+ * @returns The assigned proxy URI or undefined if no proxies available
+ */
+function assignProxyToAccount(account: AccountState): string | undefined {
+  if (account.assignedProxy) {
+    return account.assignedProxy;
+  }
+
+  const proxyList = getProxyList();
+  if (!proxyList || proxyList.length === 0) {
+    return process.env.PROXY_URI;
+  }
+
+  const randomIndex = Math.floor(Math.random() * proxyList.length);
+  account.assignedProxy = proxyList[randomIndex];
+  return account.assignedProxy;
+}
 
 async function telemetryFetch(
   input: string | URL | Request,
@@ -184,7 +219,13 @@ export class AccountManager {
         continue;
       }
 
-      this.logger.debug(`Attempting to initialize @${account.username}...`);
+      // Assign a proxy to the account if needed
+      assignProxyToAccount(account);
+      this.logger.debug(
+        `Attempting to initialize @${account.username}${
+          account.assignedProxy ? ` with proxy ${account.assignedProxy}` : ''
+        }...`,
+      );
 
       try {
         const scraper = new Scraper({ fetch: telemetryFetch });
@@ -425,11 +466,20 @@ export class AccountManager {
         account.username &&
         !this.db.data.accounts.some((a) => a.username === account.username)
       ) {
-        this.db.data.accounts.push({
+        const accountState: AccountState = {
           ...account,
           tokenState: 'unknown',
           failedLogin: false,
-        });
+        };
+
+        assignProxyToAccount(accountState);
+        if (accountState.assignedProxy) {
+          this.logger.debug(
+            `Assigned proxy ${accountState.assignedProxy} to new account @${account.username}`,
+          );
+        }
+
+        this.db.data.accounts.push(accountState);
         added = true;
       }
     });
@@ -499,11 +549,24 @@ export class AccountManager {
 
   public resetFailedLogins(): void {
     this.logger.info(`Resetting failed/rate-limit status for all accounts.`);
+
+    const hasProxyList = !!getProxyList();
+
     this.db.data.accounts.forEach((account) => {
       account.failedLogin = false;
       account.tokenState = 'unknown';
       account.lastFailedAt = undefined;
       account.rateLimitedUntil = undefined;
+
+      account.assignedProxy = undefined;
+      if (!account.assignedProxy && hasProxyList) {
+        assignProxyToAccount(account);
+        if (account.assignedProxy) {
+          this.logger.debug(
+            `Assigned proxy ${account.assignedProxy} to reset account @${account.username}`,
+          );
+        }
+      }
     });
     this.db.write();
     this.logger.info(`Triggering full pool re-initialization after reset.`);
@@ -589,7 +652,8 @@ class TwitterPoolAuth implements TwitterAuth {
         const response = await telemetryFetch(input, {
           ...init,
           headers,
-          proxy: process.env.PROXY_URI,
+          proxy:
+            activeAccount.accountState.assignedProxy || process.env.PROXY_URI,
         });
         this.logger.emit({
           severityNumber: SeverityNumber.TRACE,
