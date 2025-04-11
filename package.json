@@ -31,7 +31,6 @@
   "scripts": {
     "commit": "cz",
     "format": "prettier --write src/**/*.ts",
-    "prepare": "husky install",
     "test": "jest",
     "start": "bun run --preload ./src/apid/tracing.ts src/apid/",
     "dev": "bun run --hot --preload ./src/apid/tracing.ts src/apid/index.ts"
