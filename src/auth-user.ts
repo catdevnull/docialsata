@@ -50,6 +50,11 @@ const TwitterUserAuthSubtask = Type.Object({
               text: Type.String(),
             }),
           ),
+          secondary_text: Type.Optional(
+            Type.Object({
+              text: Type.String(),
+            }),
+          ),
         }),
       ),
     }),
@@ -726,14 +731,17 @@ export class TwitterUserAuth extends TwitterGuestAuth {
     );
     let inputText: string | undefined;
 
-    const primaryText =
-      prev.subtask?.enter_text?.header?.primary_text?.text?.toLowerCase() ?? '';
-    const isCodePrompt =
-      primaryText.includes('code') || primaryText.includes('verification');
-    const isEmailPrompt = primaryText.includes('email');
+    const text =
+      (prev.subtask?.enter_text?.header?.primary_text?.text?.toLowerCase() ??
+        '') +
+      '\n' +
+      (prev.subtask?.enter_text?.header?.secondary_text?.text?.toLowerCase() ??
+        '');
+    const isCodePrompt = text.includes('code') || text.includes('verification');
+    const isEmailPrompt = text.includes('email');
 
     console.log(
-      `[Login Flow] ACID prompt text: "${primaryText}" (isCode: ${isCodePrompt}, isEmail: ${isEmailPrompt})`,
+      `[Login Flow] ACID prompt text: "${text}" (isCode: ${isCodePrompt}, isEmail: ${isEmailPrompt})`,
     );
 
     if (isCodePrompt) {

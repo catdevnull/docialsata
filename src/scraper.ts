@@ -428,10 +428,17 @@ export class Scraper {
     password: string,
     email?: string,
     twoFactorSecret?: string,
+    emailPassword?: string,
   ): Promise<void> {
     // Swap in a real authorizer for all requests
     const userAuth = new TwitterUserAuth(this.token, this.getAuthOptions());
-    await userAuth.login(username, password, email, twoFactorSecret);
+    await userAuth.login(
+      username,
+      password,
+      email,
+      twoFactorSecret,
+      emailPassword,
+    );
     this.auth = userAuth;
     this.authTrends = userAuth;
   }

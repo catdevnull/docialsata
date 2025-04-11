@@ -271,6 +271,7 @@ export class AccountManager {
             account.password,
             account.email,
             account.twoFactorSecret,
+            account.emailPassword,
           );
           loggedIn = await scraper.isLoggedIn();
         }
