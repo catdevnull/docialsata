@@ -23,8 +23,9 @@ function getImapConfig(email: string): ImapServerConfig {
     };
   } else if (lowerEmail.endsWith('@rambler.ru')) {
     return { host: 'imap.rambler.ru', port: 993, secure: true };
+  } else if (lowerEmail.endsWith('@gmx.com')) {
+    return { host: 'imap.gmx.com', port: 993, secure: true };
   }
-  // Add other common providers if needed
   const domain = email.includes('@') ? email.split('@')[1] : 'unknown';
   throw new Error(
     `Unsupported email provider for automatic code retrieval: ${domain}`,
