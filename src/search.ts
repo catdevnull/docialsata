@@ -78,6 +78,38 @@ export async function fetchSearchProfiles(
   return parseSearchTimelineUsers(timeline);
 }
 
+/**
+ * Returns an iterator of all tweets (posts and replies, no reposts) for a username.
+ * It uses the search endpoint, so it doesn't find reposts.
+ * Newest to oldest.
+ */
+export async function* getAllTweetsEver(auth: TwitterAuth, username: string) {
+  let seenIds = new Set<string>();
+
+  // https://socialdata.gitbook.io/docs/twitter-tweets/retrieve-search-results-by-keyword#retrieving-large-datasets
+  let max_id: null | string = '';
+  while (true) {
+    const query = `from:${username}` + (max_id ? ` max_id:${max_id}` : '');
+    const search = searchTweets(query, Infinity, SearchMode.Latest, auth);
+    let lowest: null | bigint = null;
+    for await (const result of search) {
+      if (seenIds.has(result.id!)) {
+        continue;
+      }
+      if (!lowest || BigInt(result.id!) < lowest) {
+        lowest = BigInt(result.id!);
+      }
+      seenIds.add(result.id!);
+      yield result;
+    }
+    if (!lowest) {
+      break;
+    } else {
+      max_id = lowest.toString();
+    }
+  }
+}
+
 async function getSearchTimeline(
   query: string,
   maxItems: number,

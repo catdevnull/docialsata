@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { stream } from 'hono/streaming';
 import { accountManager } from '../account-manager.js';
 import { getProfile, getUserIdByScreenName } from '../profile.js';
 import { getTweetsAndRepliesByUserId } from '../tweets.js';
@@ -7,6 +8,7 @@ import { HTTPException } from 'hono/http-exception';
 import type { TwitterAuth } from '../auth.js';
 import { getFollowers, getFollowing } from '../relationships.js';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
+import { getAllTweetsEver, SearchMode, searchTweets } from '../search.js';
 
 export const router = new Hono();
 
@@ -114,4 +116,26 @@ router.get('/:id_or_handle/followers', verifyToken, async (c) => {
   }
 
   return c.json({ profiles });
+});
+
+router.get('/:id_or_handle/all-tweets', verifyToken, async (c) => {
+  const idOrHandle = c.req.param('id_or_handle');
+  if (!idOrHandle.startsWith('@'))
+    throw new HTTPJsonException(400, 'Handle must start with @');
+  const handle = idOrHandle.slice(1);
+  const auth = accountManager.createAuthInstance();
+
+  const res = getAllTweetsEver(auth, handle);
+  if (c.req.header('accept') === 'application/jsonl') {
+    return stream(c, async (stream) => {
+      for await (const tweet of res) {
+        stream.writeln(JSON.stringify(tweet));
+      }
+    });
+  }
+  let tweets = [];
+  for await (const tweet of res) {
+    tweets.push(tweet);
+  }
+  return c.json({ tweets });
 });
