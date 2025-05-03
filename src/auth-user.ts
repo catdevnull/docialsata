@@ -254,6 +254,9 @@ export class TwitterUserAuth extends TwitterGuestAuth {
     );
 
     const headers = new Headers(STANDARD_HEADERS);
+    if (!(await this.getCookies()).find((c) => c.key === 'ct0')) {
+      await this.getCsrfToken();
+    }
     await this.installTo(headers);
     const request = new Request(url.toString(), {
       method: 'GET',
@@ -291,20 +294,22 @@ export class TwitterUserAuth extends TwitterGuestAuth {
     }
   }
 
-  async loginWithToken(token: string): Promise<void> {
+  async getCsrfToken() {
     const res = await this.fetch('https://x.com', {
       headers: {
         'User-Agent':
           'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36',
         accept: '*/*',
         'accept-language': 'es-AR,es;q=0.9,en-US;q=0.8,en;q=0.7',
-        cookie: `auth_token=${token}`,
+        cookie: await this.getCookieString(),
       },
     });
-    // setup csrf token
     await updateCookieJar(this.jar, res.headers);
+  }
 
+  async loginWithToken(token: string): Promise<void> {
     await this.jar.setCookie(`auth_token=${token}`, 'https://x.com');
+    await this.getCsrfToken();
 
     try {
       await this.initTransactionIdGenerator();
