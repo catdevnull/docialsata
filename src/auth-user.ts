@@ -3,7 +3,7 @@ import {
   type TwitterAuthOptions,
   TwitterGuestAuth,
 } from './auth';
-import { bearerToken, requestApi } from './api';
+import { bearerToken, getJsonError, requestApi } from './api';
 import { CookieJar } from 'tough-cookie';
 import { updateCookieJar } from './requests';
 import type { TwitterApiErrorRaw } from './errors';
@@ -12,6 +12,14 @@ import { Check } from '@sinclair/typebox/value';
 import * as OTPAuth from 'otpauth';
 import { fetchConfirmationCodeFromEmail } from './email-helper';
 import { TransactionIdGenerator as TransactionIdGenerator } from './transaction-id';
+
+const STANDARD_HEADERS = {
+  'User-Agent':
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36',
+  accept: '*/*',
+  'accept-language': 'es-AR,es;q=0.9,en-US;q=0.8,en;q=0.7',
+  'content-type': 'application/json',
+};
 interface TwitterUserAuthFlowInitRequest {
   flow_name: string;
   input_flow_data: Record<string, unknown>;
@@ -210,38 +218,91 @@ export class TwitterUserAuth extends TwitterGuestAuth {
     }
   }
 
-  private async generateTransactionIdViaCli(
+  private async generateTransactionId(
     method: string,
     path: string,
   ): Promise<string> {
-    if (!this.transactionIdGenerator) {
+    if (!this.transactionIdGenerator)
       throw new Error(
         'Initial HTML content is missing. Run initTransactionIdGenerator() first.',
       );
-    }
+
     return this.transactionIdGenerator.getTransactionId(method, path);
+  }
+  async attachTransactionId(headers: Headers, url: string, method: string) {
+    console.log(
+      'DKLFHSKLGJHDSKJGSDHKGJHSDKFGJHSDJKHGKSDg',
+      method,
+      new URL(url).pathname,
+    );
+    const transactionId = await this.generateTransactionId(
+      method,
+      new URL(url).pathname,
+    );
+    headers.set('X-Client-Transaction-Id', transactionId);
+    return headers;
   }
 
   async isLoggedIn(): Promise<boolean> {
-    const res = await requestApi<TwitterUserAuthVerifyCredentials>(
-      'https://api.twitter.com/1.1/account/verify_credentials.json',
-      this,
+    const url = new URL(
+      'https://x.com/i/api/graphql/yiuC0NUvq-IZ0bB_vEH1xA/ExploreSidebar',
     );
-    if (!res.success) {
+    url.searchParams.set('variables', '{}');
+    url.searchParams.set(
+      'features',
+      '{"rweb_video_screen_enabled":false,"profile_label_improvements_pcf_label_in_post_enabled":true,"rweb_tipjar_consumption_enabled":true,"verified_phone_label_enabled":false,"creator_subscriptions_tweet_preview_api_enabled":true,"responsive_web_graphql_timeline_navigation_enabled":true,"responsive_web_graphql_skip_user_profile_image_extensions_enabled":false,"premium_content_api_read_enabled":false,"communities_web_enable_tweet_community_results_fetch":true,"c9s_tweet_anatomy_moderator_badge_enabled":true,"responsive_web_grok_analyze_button_fetch_trends_enabled":false,"responsive_web_grok_analyze_post_followups_enabled":true,"responsive_web_jetfuel_frame":false,"responsive_web_grok_share_attachment_enabled":true,"articles_preview_enabled":true,"responsive_web_edit_tweet_api_enabled":true,"graphql_is_translatable_rweb_tweet_is_translatable_enabled":true,"view_counts_everywhere_api_enabled":true,"longform_notetweets_consumption_enabled":true,"responsive_web_twitter_article_tweet_consumption_enabled":true,"tweet_awards_web_tipping_enabled":false,"responsive_web_grok_show_grok_translated_post":false,"responsive_web_grok_analysis_button_from_backend":true,"creator_subscriptions_quote_tweet_preview_enabled":false,"freedom_of_speech_not_reach_fetch_enabled":true,"standardized_nudges_misinfo":true,"tweet_with_visibility_results_prefer_gql_limited_actions_policy_enabled":true,"longform_notetweets_rich_text_read_enabled":true,"longform_notetweets_inline_media_enabled":true,"responsive_web_grok_image_annotation_enabled":true,"responsive_web_enhance_cards_enabled":false}',
+    );
+
+    const headers = new Headers(STANDARD_HEADERS);
+    await this.installTo(headers);
+    const request = new Request(url.toString(), {
+      method: 'GET',
+      headers: headers,
+    });
+    await this.attachTransactionId(
+      request.headers,
+      url.toString(),
+      request.method,
+    );
+
+    try {
+      const res = await this.fetch(url.toString(), { headers });
+
+      await updateCookieJar(this.jar, res.headers);
+
+      const value = await res.json();
+      if (res.ok) {
+        const error = await getJsonError(value);
+        if (error) throw new Error(`Failed to call test endpoint: ${error}`);
+      } else {
+        throw new Error(
+          `Failed to call test endpoint: ${res.status} ${
+            res.statusText
+          } ${JSON.stringify(value)}`,
+        );
+      }
+      return true;
+    } catch (error: any) {
+      console.error(
+        '[Test Endpoint] Error calling test endpoint:',
+        error.message || error,
+      );
       return false;
     }
-
-    const { value: verify } = res;
-    return verify != null && (!verify.errors || verify.errors.length === 0);
   }
 
   async loginWithToken(token: string): Promise<void> {
-    let ct0 = '';
-    const choices = [...'0123456789abcdefghijklmnopqrstuvwxyz'.split('')];
-    for (let i = 0; i < 160; i++) {
-      ct0 += choices[Math.floor(Math.random() * choices.length)];
-    }
-    await this.jar.setCookie(`ct0=${ct0}`, 'https://x.com');
+    const res = await this.fetch('https://x.com', {
+      headers: {
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36',
+        accept: '*/*',
+        'accept-language': 'es-AR,es;q=0.9,en-US;q=0.8,en;q=0.7',
+        cookie: `auth_token=${token}`,
+      },
+    });
+    // setup csrf token
+    await updateCookieJar(this.jar, res.headers);
 
     await this.jar.setCookie(`auth_token=${token}`, 'https://x.com');
 
@@ -252,61 +313,6 @@ export class TwitterUserAuth extends TwitterGuestAuth {
         '[Login With Token] Failed to fetch initial HTML:',
         error.message || error,
       );
-    }
-
-    const headers = new Headers();
-    await this.installTo(headers);
-
-    const variables = {
-      withCommunitiesMemberships: true,
-    };
-    const features = {
-      rweb_tipjar_consumption_enabled: true,
-      responsive_web_graphql_exclude_directive_enabled: true,
-      verified_phone_label_enabled: false,
-      creator_subscriptions_tweet_preview_api_enabled: true,
-      responsive_web_graphql_skip_user_profile_image_extensions_enabled: false,
-      responsive_web_graphql_timeline_navigation_enabled: true,
-    };
-    const fieldToggles = {
-      isDelegate: false,
-      withAuxiliaryUserLabels: false,
-    };
-
-    const viewerUrl = new URL(
-      'https://twitter.com/i/api/graphql/HC-1ZetsBT1HKVUOvnLE8Q/Viewer',
-    );
-    viewerUrl.searchParams.set('variables', JSON.stringify(variables));
-    viewerUrl.searchParams.set('features', JSON.stringify(features));
-    viewerUrl.searchParams.set('fieldToggles', JSON.stringify(fieldToggles));
-
-    try {
-      console.log(
-        `[Login With Token] Calling Viewer endpoint: ${viewerUrl.toString()}`,
-      );
-      const res = await this.fetch(viewerUrl.toString(), { headers });
-
-      console.log(
-        `[Login With Token] Viewer endpoint response status: ${res.status}`,
-      );
-      await updateCookieJar(this.jar, res.headers);
-
-      if (!res.ok) {
-        const responseBody = await res
-          .text()
-          .catch(() => 'Could not read response body');
-        console.warn(
-          `[Login With Token] Viewer endpoint call failed with status ${res.status}. Session might be invalid or require re-authentication. Body: ${responseBody}`,
-        );
-      } else {
-        console.log('[Login With Token] Viewer endpoint call successful.');
-      }
-    } catch (error: any) {
-      console.error(
-        '[Login With Token] Error calling Viewer endpoint:',
-        error.message || error,
-      );
-      throw error;
     }
 
     if (!(await this.isLoggedIn())) {
@@ -363,9 +369,6 @@ export class TwitterUserAuth extends TwitterGuestAuth {
       } else if (currentSubtaskId === 'LoginAcid') {
         next = await this.handleAcid(next, email, emailPassword);
       } else if (currentSubtaskId === 'LoginSuccessSubtask') {
-        console.log(
-          '[Login Flow] LoginSuccessSubtask received. Login complete.',
-        );
         break;
       } else if (currentSubtaskId === 'DenyLoginSubtask') {
         console.error('[Login Flow] DenyLoginSubtask encountered during flow.');
@@ -498,9 +501,9 @@ export class TwitterUserAuth extends TwitterGuestAuth {
     headers.set('cookie', await this.getCookieString());
     await this.installCsrfToken(headers);
 
-    headers.set('x-twitter-auth-type', 'OAuth2Session');
-    headers.set('x-twitter-active-user', 'yes');
-    headers.set('x-twitter-client-language', 'en');
+    headers.set('X-Twitter-Active-User', 'yes');
+    headers.set('X-Twitter-Auth-Type', 'OAuth2Session');
+    headers.set('X-Twitter-Client-Language', 'en');
   }
 
   private async initLogin(): Promise<FlowTokenResult> {
@@ -544,7 +547,6 @@ export class TwitterUserAuth extends TwitterGuestAuth {
   private async handleJsInstrumentationSubtask(
     prev: FlowTokenResultSuccess,
   ): Promise<FlowTokenResult> {
-    console.log('[Login Flow] Handling JS Instrumentation subtask.');
     const hardcodedJsResponse =
       '{"rf":{"a025043bb37f213c64177fb7dee22fa9622c41d63db12a8320344d2e4eb870b4":-252,"a3ef81ad1f68f094ab6b38abbd90a2e5fa1725153d0a6e5b4ae2358fbe10f786":251,"a6bdc63164db5b9016b7ea90549fa9250f6f73fc5699c059fe403eab598708ba":-218,"ab7835855ed63123eb666561fd011a0abcf04d4da7d02e288dc91448eabcb18b":219},"s":"rU9F_dp9s1M0bbnfdrWH7yIqTl2DYdxDkqB0HehtDaNJwDp78HjutGdXmsBupKSYjDtRMpepAHPNepcMFwmLyhi4RGnfi9CR9aOj3eHxa_yOIJfjy6deDrPSoBp0Ci-JjPk6QkulbW-VgNos-eG-dAXScs91EiWW1-2hUFQIlGM_t2gBoTwsQHSZc70SBHNDZBNYB0sCpHbf69oox-SDAREeO4wHj7743V9DnygwK7Th7ECqrmXrw24pgQxw_bizAaI2S1cVS9Yf2IX-8QWL6qkjypVkPUNoXJ-SdUKegAYfeQ8RM13B7_aGMYk6U1mZyBSQrWf5IMQqXZsERHiP3wAAAZYD0RfC"}';
 
@@ -816,7 +818,6 @@ export class TwitterUserAuth extends TwitterGuestAuth {
   ): Promise<FlowTokenResult> {
     const onboardingTaskUrl =
       'https://api.twitter.com/1.1/onboarding/task.json';
-    const requestPath = '/1.1/onboarding/task.json';
     const requestMethod = 'POST';
 
     const guestToken = this.guestToken;
@@ -845,39 +846,20 @@ export class TwitterUserAuth extends TwitterGuestAuth {
     });
     await this.installCsrfToken(headers);
 
-    if (this.transactionIdGenerator) {
-      try {
-        const transactionId = await this.generateTransactionIdViaCli(
-          requestMethod,
-          requestPath,
-        );
-        console.log(
-          `[Execute Flow Task] Adding X-Client-Transaction-Id: ${transactionId}`,
-        );
-        headers.set('X-Client-Transaction-Id', transactionId);
-      } catch (error: any) {
-        console.error(
-          '[Execute Flow Task] Failed to generate transaction ID for onboarding task',
-          error.message || error,
-        );
-        throw new Error('failed to generate x-client-transaction-id');
-      }
-    } else {
-      console.warn(
-        '[Execute Flow Task] Initial HTML content not available, skipping X-Client-Transaction-Id header.',
-      );
-    }
+    const request = new Request(onboardingTaskUrl, {
+      method: requestMethod,
+      headers: headers,
+      body: JSON.stringify(data),
+      redirect: 'follow',
+    });
+
+    this.attachTransactionId(request.headers, request.url, request.method);
 
     console.log(`[Execute Flow Task] Sending request to ${onboardingTaskUrl}`);
 
     let res: Response;
     try {
-      res = await this.fetch(onboardingTaskUrl, {
-        method: requestMethod,
-        headers: headers,
-        body: JSON.stringify(data),
-        redirect: 'follow',
-      });
+      res = await this.fetch(request);
     } catch (fetchError: any) {
       console.error(
         `[Execute Flow Task] Network error during fetch: ${
@@ -991,7 +973,6 @@ export class TwitterUserAuth extends TwitterGuestAuth {
     }
 
     if (subtask) {
-      console.log(`[Execute Flow Task] Next subtask ID: ${subtask.subtask_id}`);
       if (subtask.subtask_id === 'DenyLoginSubtask') {
         console.error(
           '[Execute Flow Task] Authentication denied: DenyLoginSubtask received.',

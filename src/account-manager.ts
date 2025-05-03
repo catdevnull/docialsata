@@ -6,6 +6,8 @@ import { JSONFileSyncPreset } from 'lowdb/node';
 import { trace, SpanStatusCode } from '@opentelemetry/api';
 import { logs, SeverityNumber } from '@opentelemetry/api-logs';
 import { logger } from './apid/tracing.js';
+import { getJsonError } from './api.js';
+import type { TwitterUserAuth } from './auth-user.js';
 
 export type AccountInfo = {
   username: string;
@@ -155,7 +157,7 @@ export class AccountManager {
   private db: ReturnType<typeof JSONFileSyncPreset<DbData>>;
   private activeAccounts: ActiveAccount[] = [];
   private roundRobinIndex = 0;
-  private poolSize = 5;
+  private poolSize = process.env.POOL_SIZE ? Number(process.env.POOL_SIZE) : 5;
   private initializationPromise: Promise<void> | null = null;
   private readonly logger = logger.child({
     module: 'AccountManager',
@@ -599,7 +601,9 @@ export const accountManager = new AccountManager();
 
 class TwitterPoolAuth implements TwitterAuth {
   private manager: AccountManager;
-  private readonly logger = logs.getLogger('docial-auth', '0.0.0');
+  private readonly logger = logger.child({
+    module: 'docial-auth',
+  });
 
   constructor(manager: AccountManager) {
     this.manager = manager;
@@ -608,41 +612,36 @@ class TwitterPoolAuth implements TwitterAuth {
   async fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
     const activePoolSize = this.manager.getActivePoolAccounts().length;
     const maxRetries = Math.max(activePoolSize, 1);
-    this.logger.emit({
-      severityNumber: SeverityNumber.TRACE,
-      body: `TwitterPoolAuth.fetch called. Max retries: ${maxRetries}`,
-    });
+    this.logger.trace(
+      `TwitterPoolAuth.fetch called. Max retries: ${maxRetries}`,
+    );
 
     const triedUsernames = new Set<string>();
     const url = input instanceof Request ? input.url : input.toString();
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      this.logger.emit({
-        severityNumber: SeverityNumber.TRACE,
-        body: `Fetch attempt ${attempt}/${maxRetries}. Getting next account...`,
-      });
+      this.logger.trace(
+        `Fetch attempt ${attempt}/${maxRetries}. Getting next account...`,
+      );
       const activeAccount = await this.manager.getNextAccount();
 
       if (!activeAccount) {
-        this.logger.emit({
-          severityNumber: SeverityNumber.WARN,
-          body: `Fetch attempt ${attempt}/${maxRetries}: No accounts available from getNextAccount(). Waiting...`,
-        });
+        this.logger.warn(
+          `Fetch attempt ${attempt}/${maxRetries}: No accounts available from getNextAccount(). Waiting...`,
+        );
         await wait(5000);
         continue;
       }
 
       const username = activeAccount.accountState.username;
       if (triedUsernames.has(username)) {
-        this.logger.emit({
-          severityNumber: SeverityNumber.DEBUG,
-          body: `Fetch attempt ${attempt}/${maxRetries}: Already tried @${username} in this fetch call. Skipping.`,
-        });
+        this.logger.debug(
+          `Fetch attempt ${attempt}/${maxRetries}: Already tried @${username} in this fetch call. Skipping.`,
+        );
         if (triedUsernames.size >= activePoolSize) {
-          this.logger.emit({
-            severityNumber: SeverityNumber.WARN,
-            body: `Fetch attempt ${attempt}/${maxRetries}: All ${activePoolSize} active accounts already tried and failed in this fetch call.`,
-          });
+          this.logger.warn(
+            `Fetch attempt ${attempt}/${maxRetries}: All ${activePoolSize} active accounts already tried and failed in this fetch call.`,
+          );
           break;
         }
         continue;
@@ -650,18 +649,18 @@ class TwitterPoolAuth implements TwitterAuth {
       triedUsernames.add(username);
 
       try {
-        this.logger.emit({
-          severityNumber: SeverityNumber.DEBUG,
-          body: `Fetch attempt ${attempt}/${maxRetries} using @${username} for URL: ${url}`,
-        });
+        this.logger.debug(
+          `Fetch attempt ${attempt}/${maxRetries} using @${username} for URL: ${url}`,
+        );
 
         const scraper = activeAccount.scraper;
         const headers = new Headers(init?.headers);
         await scraper.auth.installTo(headers, url);
-        this.logger.emit({
-          severityNumber: SeverityNumber.TRACE,
-          body: `Auth headers installed for @${username}.`,
-        });
+        await (scraper.auth as TwitterUserAuth).attachTransactionId(
+          headers,
+          url,
+          init?.method || 'GET',
+        );
 
         const response = await telemetryFetch(input, {
           ...init,
@@ -669,69 +668,80 @@ class TwitterPoolAuth implements TwitterAuth {
           proxy:
             activeAccount.accountState.assignedProxy || process.env.PROXY_URI,
         });
-        this.logger.emit({
-          severityNumber: SeverityNumber.TRACE,
-          body: `Fetch response received for @${username}: ${response.status}`,
-        });
+        this.logger.debug(
+          `Fetch response received for @${username}: ${response.status}`,
+        );
 
         if (response.ok) {
-          this.logger.emit({
-            severityNumber: SeverityNumber.DEBUG,
-            body: `Fetch successful for @${username} (Status: ${response.status})`,
+          const value = await response.json();
+          const error = await getJsonError(value);
+          if (
+            error?.includes(
+              'Authorization: Denied by access control: To protect our users from spam and other malicious activity',
+            )
+          ) {
+            this.logger.error(
+              `Got a "to prevent malicious activity" error (${response.status}) for @${username}. Marking as failed.`,
+            );
+            this.manager.markFailed(username);
+            continue;
+          }
+
+          this.logger.debug(
+            `Fetch successful for @${username} (Status: ${response.status})`,
+          );
+          return new Response(JSON.stringify(value), {
+            status: response.status,
+            headers: response.headers,
+            statusText: response.statusText,
           });
-          return response;
         }
 
-        this.logger.emit({
-          severityNumber: SeverityNumber.WARN,
-          body: `Fetch failed for @${username} (Status: ${response.status}) on URL: ${url}.`,
-        });
+        this.logger.warn(
+          `Fetch failed for @${username} (Status: ${response.status}) on URL: ${url}.`,
+        );
 
         if (response.status === 429) {
           const resetHeader = response.headers.get('x-rate-limit-reset');
           const until = resetHeader
             ? parseInt(resetHeader, 10) * 1000
             : Date.now() + 5 * 60 * 1000;
-          this.logger.emit({
-            severityNumber: SeverityNumber.WARN,
-            body: `Rate limit (429) hit for @${username}. Marking limited until ${new Date(
+          this.logger.warn(
+            `Rate limit (429) hit for @${username}. Marking limited until ${new Date(
               until,
             ).toISOString()}.`,
-          });
+          );
           this.manager.updateRateLimit(username, until);
           continue;
         }
 
         if (response.status === 401 || response.status === 403) {
-          this.logger.emit({
-            severityNumber: SeverityNumber.ERROR,
-            body: `Auth error (${response.status}) for @${username}. Marking as failed.`,
-          });
+          this.logger.error(
+            `Auth error (${response.status}) for @${username}. Marking as failed.`,
+          );
           this.manager.markFailed(username);
           continue;
         }
 
-        this.logger.emit({
-          severityNumber: SeverityNumber.WARN,
-          body: `Non-critical error status ${response.status} for @${username}. Trying next account.`,
-        });
+        this.logger.warn(
+          `Non-critical error status ${response.status} for @${username}. Trying next account.`,
+        );
         continue;
       } catch (error) {
-        this.logger.emit({
-          severityNumber: SeverityNumber.ERROR,
-          body: `Network error for @${username}: ${
+        console.log('tweetpoolauth error', error);
+        this.logger.error(
+          `Network error for @${username}: ${
             (error as Error).message
           }. Marking as failed.`,
-        });
+        );
         this.manager.markFailed(username);
         continue;
       }
     }
 
-    this.logger.emit({
-      severityNumber: SeverityNumber.ERROR,
-      body: `Fetch failed for ${url} after exhausting all ${maxRetries} retry attempts.`,
-    });
+    this.logger.error(
+      `Fetch failed for ${url} after exhausting all ${maxRetries} retry attempts.`,
+    );
     throw new Error(
       `Failed to fetch ${url} after trying ${triedUsernames.size} accounts.`,
     );

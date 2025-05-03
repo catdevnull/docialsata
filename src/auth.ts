@@ -161,18 +161,23 @@ export class TwitterGuestAuth implements TwitterAuth {
     headers.set('cookie', await this.getCookieString());
   }
 
-  protected getCookies(): Promise<Cookie[]> {
-    return this.jar.getCookies(this.getCookieJarUrl());
+  protected async getCookies(): Promise<Cookie[]> {
+    const allCookies = await Promise.all([
+      this.jar.getCookies('https://twitter.com'),
+      this.jar.getCookies('https://x.com'),
+    ]);
+    return allCookies.flat();
   }
 
-  protected getCookieString(): Promise<string> {
-    return this.jar.getCookieString(this.getCookieJarUrl());
+  protected async getCookieString(): Promise<string> {
+    const cookies = await this.getCookies();
+    return cookies.map((cookie) => `${cookie.key}=${cookie.value}`).join('; ');
   }
 
   protected async removeCookie(key: string): Promise<void> {
     //@ts-expect-error don't care
     const store: MemoryCookieStore = this.jar.store;
-    const cookies = await this.jar.getCookies(this.getCookieJarUrl());
+    const cookies = await this.getCookies();
     for (const cookie of cookies) {
       if (!cookie.domain || !cookie.path) continue;
       store.removeCookie(cookie.domain, cookie.path, key);
@@ -181,12 +186,6 @@ export class TwitterGuestAuth implements TwitterAuth {
         document.cookie = `${cookie.key}=; Max-Age=0; path=${cookie.path}; domain=${cookie.domain}`;
       }
     }
-  }
-
-  private getCookieJarUrl(): string {
-    return typeof document !== 'undefined'
-      ? document.location.toString()
-      : 'https://twitter.com';
   }
 
   /**
